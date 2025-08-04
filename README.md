@@ -89,8 +89,4 @@ I welcome contributions! Please feel free to fork the repository, open an issue,
 ## 📄 License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.
-"""
 
-
-# Example of how you might use this string in a Python script:
-# print(readme_content)
