@@ -1,0 +1,6 @@
+# requirements.txt
+#
+# This file lists the Python packages required to run the WLAN Scanner application.
+# It should be used to install the project dependencies via pip.
+
+PyQt5

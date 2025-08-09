@@ -1,0 +1,748 @@
+# app/main_window.py
+
+import os
+import sys
+from PyQt5.QtWidgets import (
+    QMainWindow, QApplication, QAction, QMessageBox,
+    QVBoxLayout, QWidget, QLabel, QDialog
+)
+from PyQt5.QtCore import Qt, QTemporaryDir
+from PyQt5.QtGui import QPixmap
+
+# Local imports from the 'app' package using relative imports
+from .preferences_dialog import PreferencesDialog
+from .site_info_dialog import SiteInformationDialog
+from .floor_import_dialog import FloorImportDialog
+from .scale_line_dialog import ScaleLineDialog
+from .data_models import MapProject, SiteInfo, Floor
+
+
+class MainWindow(QMainWindow):
+    """
+    The main application window for the WLAN Scanner.
+    Handles the main UI layout, menu bar actions, and orchestrates
+    interactions with other dialogs and managers.
+    """
+    def __init__(self, config_manager, i18n_manager, debug_mode=False, parent=None):
+        """
+        Initializes the MainWindow.
+
+        Args:
+            config_manager: An instance of ConfigManager.
+            i18n_manager: An instance of I18nManager for translations.
+            debug_mode (bool): If True, enables extensive debug logging.
+            parent (QWidget, optional): The parent widget. Defaults to None.
+        """
+        super().__init__(parent)
+        self.config_manager = config_manager
+        self.i18n = i18n_manager
+        self.debug_mode = debug_mode
+        if self.debug_mode:
+            print("DEBUG: MainWindow initialized in DEBUG_MODE.")
+
+        self.current_project = None # MapProject object
+        self.current_floor_pixmap = None # QPixmap of the currently displayed floor map
+
+        self.setWindowTitle(self.i18n.get_string("app_title_placeholder"))
+        self.setMinimumSize(1024, 768)
+
+        self._init_ui()
+        self._create_menus()
+        self._check_initial_setup()
+
+    def _init_ui(self):
+        """
+        Initializes the main user interface components and layout.
+        """
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+
+        # Placeholder for the map display
+        self.map_display_label = QLabel(self.i18n.get_string("no_project_loaded_message"))
+        self.map_display_label.setAlignment(Qt.AlignCenter)
+        self.map_display_label.setStyleSheet("QLabel { border: 1px solid #ccc; background-color: #f0f0f0; }")
+        self.map_display_label.setMinimumSize(800, 600)
+        main_layout.addWidget(self.map_display_label)
+
+        # Status bar
+        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+
+    def _create_menus(self):
+        """
+        Creates the application's menu bar and populates it with actions.
+        """
+        menu_bar = self.menuBar()
+
+        # File Menu
+        file_menu = menu_bar.addMenu(self.i18n.get_string("menu_file"))
+        new_project_action = QAction(self.i18n.get_string("menu_file_new_project"), self)
+        new_project_action.triggered.connect(self._new_project)
+        file_menu.addAction(new_project_action)
+
+        open_project_action = QAction(self.i18n.get_string("menu_file_open_project"), self)
+        open_project_action.triggered.connect(self._open_project)
+        file_menu.addAction(open_project_action)
+
+        save_project_action = QAction(self.i18n.get_string("menu_file_save_project"), self)
+        save_project_action.triggered.connect(self._save_project)
+        file_menu.addAction(save_project_action)
+
+        save_project_as_action = QAction(self.i18n.get_string("menu_file_save_project_as"), self)
+        save_project_as_action.triggered.connect(self._save_project_as)
+        file_menu.addAction(save_project_as_action)
+
+        file_menu.addSeparator()
+        exit_action = QAction(self.i18n.get_string("menu_file_exit"), self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # Edit Menu
+        edit_menu = menu_bar.addMenu(self.i18n.get_string("menu_edit"))
+        preferences_action = QAction(self.i18n.get_string("menu_edit_preferences"), self)
+        preferences_action.triggered.connect(self._open_preferences)
+        edit_menu.addAction(preferences_action)
+
+        edit_site_info_action = QAction(self.i18n.get_string("menu_edit_site_info"), self)
+        edit_site_info_action.triggered.connect(self._edit_site_info)
+        edit_menu.addAction(edit_site_info_action)
+
+        # Floor Menu
+        floor_menu = menu_bar.addMenu(self.i18n.get_string("menu_floor"))
+        add_new_floor_action = QAction(self.i18n.get_string("menu_floor_add_new_floor"), self)
+        add_new_floor_action.triggered.connect(lambda: self._add_new_floor(is_first_floor=False))
+        floor_menu.addAction(add_new_floor_action)
+
+        edit_current_floor_map_action = QAction(self.i18n.get_string("menu_floor_edit_current_floor_map"), self)
+        edit_current_floor_map_action.triggered.connect(self._edit_current_floor_map)
+        floor_menu.addAction(edit_current_floor_map_action)
+
+        set_scale_lines_action = QAction(self.i18n.get_string("menu_floor_set_scale_lines"), self)
+        set_scale_lines_action.triggered.connect(lambda: self._set_scale_lines_for_current_floor(is_first_floor_setup=False))
+        floor_menu.addAction(set_scale_lines_action)
+
+        # Scan Menu
+        scan_menu = menu_bar.addMenu(self.i18n.get_string("menu_scan"))
+        run_scan_action = QAction(self.i18n.get_string("menu_scan_run_scan"), self)
+        run_scan_action.triggered.connect(self._run_scan)
+        scan_menu.addAction(run_scan_action)
+
+        configure_scan_tools_action = QAction(self.i18n.get_string("menu_scan_configure_scan_tools"), self)
+        configure_scan_tools_action.triggered.connect(self._configure_scan_tools)
+        scan_menu.addAction(configure_scan_tools_action)
+
+        # Report Menu
+        report_menu = menu_bar.addMenu(self.i18n.get_string("menu_report"))
+        generate_pdf_report_action = QAction(self.i18n.get_string("menu_report_generate_pdf_report"), self)
+        generate_pdf_report_action.triggered.connect(self._generate_pdf_report)
+        report_menu.addAction(generate_pdf_report_action)
+
+        # View Menu
+        view_menu = menu_bar.addMenu(self.i18n.get_string("menu_view"))
+        toggle_ap_list_panel_action = QAction(self.i18n.get_string("menu_view_toggle_ap_list_panel"), self)
+        toggle_ap_list_panel_action.triggered.connect(self._toggle_ap_list_panel)
+        view_menu.addAction(toggle_ap_list_panel_action)
+
+        zoom_in_action = QAction(self.i18n.get_string("menu_view_zoom_in"), self)
+        zoom_in_action.triggered.connect(self._zoom_in)
+        view_menu.addAction(zoom_in_action)
+
+        zoom_out_action = QAction(self.i18n.get_string("menu_view_zoom_out"), self)
+        zoom_out_action.triggered.connect(self._zoom_out)
+        view_menu.addAction(zoom_out_action)
+
+        # Help Menu
+        help_menu = menu_bar.addMenu(self.i18n.get_string("menu_help"))
+        about_action = QAction(self.i18n.get_string("menu_help_about"), self)
+        about_action.triggered.connect(self._about_dialog)
+        help_menu.addAction(about_action)
+
+    def _check_initial_setup(self):
+        """
+        Checks if initial application setup (preferences) is needed.
+        If so, it opens the preferences dialog.
+        """
+        if self.config_manager.is_initial_setup_needed():
+            QMessageBox.information(self, self.i18n.get_string("initial_setup_title"),
+                                    self.i18n.get_string("initial_setup_complete_message"))
+            self._open_preferences(is_initial_setup=True)
+
+    def _open_preferences(self, is_initial_setup=False):
+        """
+        Opens the preferences dialog.
+        """
+        dialog = PreferencesDialog(self.config_manager, self.i18n, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Settings saved, update i18n manager if language changed
+            self.i18n.set_language(self.config_manager.get("language", "en_US"))
+            self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+            if self.debug_mode:
+                print("DEBUG: Preferences saved.")
+        else:
+            if is_initial_setup:
+                QMessageBox.warning(self, self.i18n.get_string("initial_setup_warning_title"),
+                                    self.i18n.get_string("initial_setup_cancel_message"))
+            self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+            if self.debug_mode:
+                print("DEBUG: Preferences cancelled.")
+
+    def _new_project(self):
+        """
+        Starts a new project by prompting for site information and then the first floor.
+        """
+        if self.debug_mode:
+            print("DEBUG: Starting new project creation.")
+
+        # 1. Get Site Information
+        # Create a new SiteInfo object for the new project
+        new_site_info = SiteInfo()
+        site_info_dialog = SiteInformationDialog(new_site_info, self.i18n, parent=self)
+        if site_info_dialog.exec_() == QDialog.Accepted:
+            # Site info collected, proceed to add first floor
+            self.current_project = MapProject(site_info=new_site_info)
+            self.statusBar().showMessage(self.i18n.get_string("new_project_created_status").format(site_name=self.current_project.site_info.site_name))
+            if self.debug_mode:
+                print(f"DEBUG: New project created with site info: {self.current_project.site_info.to_dict()}")
+            self._add_new_floor(is_first_floor=True)
+        else:
+            self.current_project = None # Ensure no partial project is created
+            self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_status"))
+            if self.debug_mode:
+                print("DEBUG: New project creation cancelled by user.")
+
+    def _open_project(self):
+        """
+        Opens an existing project. (Placeholder for future implementation)
+        """
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("save_not_implemented_message"))
+        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        if self.debug_mode:
+            print("DEBUG: Open project functionality called (not implemented).")
+
+    def _save_project(self):
+        """
+        Saves the current project. (Placeholder for future implementation)
+        """
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("save_not_implemented_message"))
+        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        if self.debug_mode:
+            print("DEBUG: Save project functionality called (not implemented).")
+
+    def _save_project_as(self):
+        """
+        Saves the current project to a new location. (Placeholder for future implementation)
+        """
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("save_not_implemented_message"))
+        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        if self.debug_mode:
+            print("DEBUG: Save project as functionality called (not implemented).")
+
+    def _edit_site_info(self):
+        """
+        Opens the site information dialog to edit the current project's site info.
+        """
+        if self.current_project is None:
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_project_loaded_message_short"))
+            if self.debug_mode:
+                print("DEBUG: Attempted to edit site info, but no project loaded.")
+            return
+
+        dialog = SiteInformationDialog(self.current_project.site_info, self.i18n, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.statusBar().showMessage(self.i18n.get_string("site_info_updated_status"))
+            if self.debug_mode:
+                print(f"DEBUG: Site information updated: {self.current_project.site_info.to_dict()}")
+        else:
+            self.statusBar().showMessage(self.i18n.get_string("site_info_edit_cancelled_status"))
+            if self.debug_mode:
+                print("DEBUG: Site information edit cancelled.")
+
+    def _add_new_floor(self, is_first_floor=False):
+        """
+        Adds a new floor to the current project.
+        """
+        if self.current_project is None:
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_project_for_floor_message"))
+            if self.debug_mode:
+                print("DEBUG: Cannot add floor: No project loaded.")
+            return
+
+        # Create a temporary directory for floor import process
+        # This temp dir will be passed to the dialog and managed internally by it.
+        temp_project_dir = QTemporaryDir()
+        if not temp_project_dir.isValid():
+            QMessageBox.critical(self, self.i18n.get_string("error_title"),
+                                 self.i18n.get_string("temp_dir_error_message"))
+            if self.debug_mode:
+                print("ERROR: Failed to create temporary directory for floor import.")
+            return
+
+        if self.debug_mode:
+            print(f"DEBUG: Temporary directory for floor import: {temp_project_dir.path()}")
+
+        dialog = FloorImportDialog(self.config_manager, self.i18n, temp_project_dir.path(), debug_mode=self.debug_mode, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            floor_data = dialog.get_floor_data()
+            if floor_data:
+                new_floor = Floor(
+                    floor_number=floor_data['floor_number'],
+                    original_image_path=floor_data['original_image_path'],
+                    cropped_image_path=floor_data['cropped_image_path'],
+                    scaled_image_path=floor_data['scaled_image_path']
+                )
+                self.current_project.floors.append(new_floor)
+                self.current_project.current_floor_index = len(self.current_project.floors) - 1
+                self._display_current_floor_map()
+                self.statusBar().showMessage(self.i18n.get_string("floor_added_status").format(floor_number=new_floor.floor_number))
+                if self.debug_mode:
+                    print(f"DEBUG: Floor {new_floor.floor_number} added to project. Original: {new_floor.original_image_path}, Cropped: {new_floor.cropped_image_path}, Scaled: {new_floor.scaled_image_path}")
+                
+                # After adding the floor, immediately open the ScaleLineDialog
+                self._set_scale_lines_for_current_floor(is_first_floor_setup=is_first_floor)
+            else:
+                self.statusBar().showMessage(self.i18n.get_string("floor_add_failed_status"))
+                if self.debug_mode:
+                    print("DEBUG: Floor data not returned from dialog.")
+                if is_first_floor:
+                    # If it was the first floor setup and it failed, cancel project creation
+                    self.current_project = None
+                    self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_full_status"))
+        else:
+            self.statusBar().showMessage(self.i18n.get_string("floor_add_cancelled_status"))
+            if self.debug_mode:
+                print("DEBUG: Floor addition cancelled by user.")
+            if is_first_floor:
+                # If it was the first floor setup and it was cancelled, cancel project creation
+                self.current_project = None
+                self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_full_status"))
+        
+        # The QTemporaryDir object will clean up automatically when it goes out of scope.
+        if self.debug_mode:
+            print(f"DEBUG: Temporary directory for floor import removed: {temp_project_dir.path()}")
+
+
+    def _edit_current_floor_map(self):
+        """
+        Re-opens the FloorImportDialog for the current floor to allow editing its map.
+        """
+        if self.current_project is None or not self.current_project.floors:
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_map_for_current_floor_message").format(
+                                    floor_number="current", site_name="current project"
+                                ))
+            if self.debug_mode:
+                print("DEBUG: Cannot edit floor map: No project or no floors loaded.")
+            return
+
+        current_floor = self.current_project.floors[self.current_project.current_floor_index]
+        
+        # Create a temporary directory for floor import process
+        temp_project_dir = QTemporaryDir()
+        if not temp_project_dir.isValid():
+            QMessageBox.critical(self, self.i18n.get_string("error_title"),
+                                 self.i18n.get_string("temp_dir_error_message"))
+            if self.debug_mode:
+                print("ERROR: Failed to create temporary directory for floor map edit.")
+            return
+
+        if self.debug_mode:
+            print(f"DEBUG: Temporary directory for floor map edit: {temp_project_dir.path()}")
+
+        # Pass existing image paths to the dialog for pre-filling/re-editing
+        dialog = FloorImportDialog(
+            self.config_manager, self.i18n, temp_project_dir.path(),
+            debug_mode=self.debug_mode, parent=self,
+            initial_floor_number=current_floor.floor_number,
+            initial_original_image_path=current_floor.original_image_path,
+            initial_cropped_image_path=current_floor.cropped_image_path,
+            initial_scaled_image_path=current_floor.scaled_image_path
+        )
+        if dialog.exec_() == QDialog.Accepted:
+            floor_data = dialog.get_floor_data()
+            if floor_data:
+                # Update the existing floor object with new data
+                current_floor.floor_number = floor_data['floor_number']
+                current_floor.original_image_path = floor_data['original_image_path']
+                current_floor.cropped_image_path = floor_data['cropped_image_path']
+                current_floor.scaled_image_path = floor_data['scaled_image_path']
+                self._display_current_floor_map()
+                self.statusBar().showMessage(self.i18n.get_string("floor_added_status").format(floor_number=current_floor.floor_number)) # Re-using status message
+                if self.debug_mode:
+                    print(f"DEBUG: Floor {current_floor.floor_number} map updated. Original: {current_floor.original_image_path}, Cropped: {current_floor.cropped_image_path}, Scaled: {current_floor.scaled_image_path}")
+            else:
+                self.statusBar().showMessage(self.i18n.get_string("floor_add_failed_status")) # Re-using status message
+                if self.debug_mode:
+                    print("DEBUG: Floor data not returned from dialog during edit.")
+        else:
+            self.statusBar().showMessage(self.i18n.get_string("floor_add_cancelled_status")) # Re-using status message
+            if self.debug_mode:
+                print("DEBUG: Floor map edit cancelled by user.")
+
+
+    def _set_scale_lines_for_current_floor(self, is_first_floor_setup):
+        """
+        Opens the ScaleLineDialog for the current floor.
+        """
+        if self.debug_mode:
+            print(f"DEBUG: Calling _set_scale_lines_for_current_floor. is_first_floor_setup={is_first_floor_setup}")
+
+        if self.current_project is None or not self.current_project.floors:
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_floor_to_set_scale_message"))
+            if self.debug_mode:
+                print("DEBUG: Cannot set scale lines: No project or no floors loaded.")
+            return
+
+        current_floor = self.current_project.floors[self.current_project.current_floor_index]
+
+        if not current_floor.scaled_image_path or not os.path.exists(current_floor.scaled_image_path):
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_map_for_current_floor_message").format(
+                                    floor_number=current_floor.floor_number,
+                                    site_name=self.current_project.site_info.site_name
+                                ))
+            if self.debug_mode:
+                print(f"DEBUG: Cannot set scale lines: Scaled image not found for floor {current_floor.floor_number}.")
+            return
+
+        scale_line_dialog = ScaleLineDialog(current_floor.scaled_image_path, self.config_manager, self.i18n, debug_mode=self.debug_mode, parent=self)
+        if scale_line_dialog.exec_() == QDialog.Accepted:
+            h_line, v_line = scale_line_dialog.get_scale_lines()
+            current_floor.scale_line_horizontal = h_line
+            current_floor.scale_line_vertical = v_line
+            self.statusBar().showMessage(self.i18n.get_string("scale_lines_set_status").format(floor_number=current_floor.floor_number))
+            if self.debug_mode:
+                print(f"DEBUG: Scale lines set for Floor {current_floor.floor_number}. H: {h_line.to_dict() if h_line else 'None'}, V: {v_line.to_dict() if v_line else 'None'}")
+        else:
+            self.statusBar().showMessage(self.i18n.get_string("scale_lines_cancelled_status").format(floor_number=current_floor.floor_number))
+            if self.debug_mode:
+                print(f"DEBUG: Scale line setup cancelled for Floor {current_floor.floor_number}.")
+            if is_first_floor_setup:
+                # If scale line setup is cancelled during initial project creation,
+                # consider the whole project creation cancelled.
+                self.current_project = None
+                self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_full_status"))
+                if self.debug_mode:
+                    print("DEBUG: First floor setup cancelled, rolling back new project.")
+
+
+    def _display_current_floor_map(self):
+        """
+        Displays the scaled image of the current floor in the map_display_label.
+        """
+        if self.current_project and self.current_project.floors:
+            current_floor = self.current_project.floors[self.current_project.current_floor_index]
+            if current_floor.scaled_image_path and os.path.exists(current_floor.scaled_image_path):
+                self.current_floor_pixmap = QPixmap(current_floor.scaled_image_path)
+                if not self.current_floor_pixmap.isNull():
+                    # Scale pixmap to fit label while maintaining aspect ratio
+                    scaled_pixmap = self.current_floor_pixmap.scaled(
+                        self.map_display_label.size(),
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.map_display_label.setPixmap(scaled_pixmap)
+                    self.map_display_label.setText("") # Clear "No project loaded" text
+                    self.statusBar().showMessage(
+                        self.i18n.get_string("current_floor_display_message").format(
+                            floor_number=current_floor.floor_number,
+                            site_name=self.current_project.site_info.site_name
+                        )
+                    )
+                    if self.debug_mode:
+                        print(f"DEBUG: Displaying map for Floor {current_floor.floor_number}.")
+                else:
+                    self.map_display_label.setText(
+                        self.i18n.get_string("image_load_error_for_display").format(
+                            floor_number=current_floor.floor_number,
+                            site_name=self.current_project.site_info.site_name
+                        )
+                    )
+                    self.current_floor_pixmap = None
+                    self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+                    if self.debug_mode:
+                        print(f"ERROR: Could not load scaled image for floor {current_floor.floor_number}: {current_floor.scaled_image_path}")
+            else:
+                self.map_display_label.setText(
+                    self.i18n.get_string("no_map_for_current_floor_message").format(
+                        floor_number=current_floor.floor_number,
+                        site_name=self.current_project.site_info.site_name
+                    )
+                )
+                self.current_floor_pixmap = None
+                self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+                if self.debug_mode:
+                    print(f"DEBUG: No scaled image path found or file does not exist for floor {current_floor.floor_number}.")
+        else:
+            self.map_display_label.setText(self.i18n.get_string("no_project_loaded_message"))
+            self.current_floor_pixmap = None
+            self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+            if self.debug_mode:
+                print("DEBUG: No project or no floors to display.")
+
+    def resizeEvent(self, event):
+        """
+        Handles window resize events to re-scale the displayed map.
+        """
+        super().resizeEvent(event)
+        self._display_current_floor_map() # Re-display map to adjust to new label size
+
+    # Placeholder methods for other menu actions
+    def _run_scan(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Run Scan functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Run Scan functionality called (not implemented).")
+
+    def _configure_scan_tools(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Configure Scan Tools functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Configure Scan Tools functionality called (not implemented).")
+
+    def _generate_pdf_report(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Generate PDF Report functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Generate PDF Report functionality called (not implemented).")
+
+    def _toggle_ap_list_panel(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Toggle AP List Panel functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Toggle AP List Panel functionality called (not implemented).")
+
+    def _zoom_in(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Zoom In functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Zoom In functionality called (not implemented).")
+
+    def _zoom_out(self):
+        QMessageBox.information(self, self.i18n.get_string("info_title"), "Zoom Out functionality not yet implemented.")
+        if self.debug_mode:
+            print("DEBUG: Zoom Out functionality called (not implemented).")
+
+    def _about_dialog(self):
+        QMessageBox.information(self, self.i18n.get_string("menu_help_about"), "WLAN Scanner Application v0.1")
+        if self.debug_mode:
+            print("DEBUG: About dialog called.")
+
+# --- For standalone testing of the dialog (optional) ---
+if __name__ == '__main__':
+    # Dummy ConfigManager and I18nManager for standalone testing
+    class DummyConfigManager:
+        def __init__(self):
+            self._config = {
+                "language": "en_US",
+                "poppler_path": "", # Set this to your Poppler bin directory for PDF testing
+                "measurement_system": "Imperial" # Or "Metric"
+            }
+        def get(self, key, default=None):
+            return self._config.get(key, default)
+        def set(self, key, value):
+            self._config[key] = value
+
+    # Import the actual I18nManager from its new location
+    from .i18n_manager import I18nManager as DummyI18nManager
+    from PyQt5.QtWidgets import QApplication, QGraphicsProxyWidget
+    from PyQt5.QtCore import QTimer # Import QTimer for standalone test
+    from PyQt5.QtGui import QImage # Import QImage for dummy image creation
+
+    app = QApplication(sys.argv)
+    dummy_config = DummyConfigManager()
+    # For standalone testing, I18nManager needs the correct path to i18n directory
+    i18n_dir_for_test = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'i18n')
+    dummy_i18n = DummyI18nManager(i18n_dir=i18n_dir_for_test)
+
+    # Create dummy i18n directory and files for testing (if they don't exist)
+    os.makedirs(i18n_dir_for_test, exist_ok=True)
+    en_us_path = os.path.join(i18n_dir_for_test, 'en_US.txt')
+    if not os.path.exists(en_us_path):
+        with open(en_us_path, 'w', encoding='utf-8') as f:
+            f.write("app_title_placeholder=WLAN Scanner Application\n")
+            f.write("welcome_message_placeholder=Welcome to the WLAN Scanner!\n")
+            f.write("initial_setup_title=Initial Setup\n")
+            f.write("initial_setup_complete_message=Preferences saved. Application will now start.\n")
+            f.write("initial_setup_warning_title=Setup Incomplete\n")
+            f.write("initial_setup_cancel_message=Initial setup was cancelled. Some features may not work correctly.\n")
+            f.write("preferences_title=Preferences\n")
+            f.write("preferences_paths_group=Paths Configuration\n")
+            f.write("poppler_path_label=Poppler Binaries Path:\n")
+            f.write("browse_button=Browse...\n")
+            f.write("preferences_general_group=General Settings\n")
+            f.write("language_label=Language:\n")
+            f.write("measurement_system_label=Measurement System:\n")
+            f.write("imperial_system=Imperial\n")
+            f.write("metric_system=Metric\n")
+            f.write("save_button=Save\n")
+            f.write("cancel_button=Cancel\n")
+            f.write("select_directory_title=Select Directory\n")
+            f.write("site_info_title=Site Information\n")
+            f.write("site_name_label=*Site Name (Mandatory):\n")
+            f.write("site_name_placeholder=Enter site name\n")
+            f.write("contact_label=Contact Person:\n")
+            f.write("contact_placeholder=Enter contact person's name\n")
+            f.write("telephone_label=Telephone Number:\n")
+            f.write("telephone_placeholder=Enter telephone number\n")
+            f.write("street_label=Street Address:\n")
+            f.write("street_placeholder=Enter street address\n")
+            f.write("city_label=City:\n")
+            f.write("city_placeholder=Enter city\n")
+            f.write("state_province_label=State/Province:\n")
+            f.write("state_province_placeholder=Enter state or province\n")
+            f.write("postal_code_label=Postal Code:\n")
+            f.write("postal_code_placeholder=Enter postal code\n")
+            f.write("country_label=Country:\n")
+            f.write("country_placeholder=Enter country\n")
+            f.write("ok_button=OK\n")
+            f.write("validation_error_title=Validation Error\n")
+            f.write("site_name_mandatory_message=Site Name is a mandatory field.\n")
+            f.write("default_measurement_system=Imperial\n")
+            f.write("no_project_loaded_message=No project loaded. Start a new project or open an existing one.\n")
+            f.write("project_loaded_message=Project '{site_name}' loaded.\n")
+            f.write("ready_status=Ready\n")
+            f.write("menu_file=File\n")
+            f.write("menu_file_new_project=New Project...\n")
+            f.write("menu_file_open_project=Open Project...\n")
+            f.write("menu_file_save_project=Save Project\n")
+            f.write("menu_file_save_project_as=Save Project As...\n")
+            f.write("menu_file_exit=Exit\n")
+            f.write("menu_edit=Edit\n")
+            f.write("menu_edit_preferences=Preferences...\n")
+            f.write("menu_edit_site_info=Edit Site Information...\n")
+            f.write("menu_floor=Floor\n")
+            f.write("menu_floor_add_new_floor=Add New Floor...\n")
+            f.write("menu_floor_edit_current_floor_map=Edit Current Floor Map...\n")
+            f.write("menu_floor_set_scale_lines=Set Scale Lines (Current Floor)...\n")
+            f.write("menu_scan=Scan\n")
+            f.write("menu_scan_run_scan=Run Scan (Current Location)\n")
+            f.write("menu_scan_configure_scan_tools=Configure Scan Tools...\n")
+            f.write("menu_report=Report\n")
+            f.write("menu_report_generate_pdf_report=Generate PDF Report...\n")
+            f.write("menu_view=View\n")
+            f.write("menu_view_toggle_ap_list_panel=Toggle AP List Panel\n")
+            f.write("menu_view_zoom_in=Zoom In\n")
+            f.write("menu_view_zoom_out=Zoom Out\n")
+            f.write("menu_help=Help\n")
+            f.write("menu_help_about=About...\n")
+            f.write("save_changes_title=Save Changes\n")
+            f.write("save_changes_message=Do you want to save changes to the current project?\n")
+            f.write("info_title=Information\n")
+            f.write("save_not_implemented_message=Save functionality is not yet implemented.\n")
+            f.write("new_project_created_status=New project '{site_name}' created.\n")
+            f.write("new_project_cancelled_status=New project creation cancelled.\n")
+            f.write("no_project_title=No Project\n")
+            f.write("no_project_loaded_message_short=No project is currently loaded.\n")
+            f.write("site_info_updated_status=Site information updated.\n")
+            f.write("site_info_edit_cancelled_status=Site information edit cancelled.\n")
+            f.write("floor_import_title=Import Floor Plan\n")
+            f.write("file_selection_group=File Selection\n")
+            f.write("floor_number_label=Floor Number:\n")
+            f.write("floor_number_placeholder=e.g., 1, Ground Floor, Basement\n")
+            f.write("image_file_label=Image/PDF File:\n")
+            f.write("select_image_file_title=Select Floor Plan Image or PDF\n")
+            f.write("image_file_filter=Image Files (*.png *.jpg *.jpeg);;PDF Files (*.pdf);;All Files (*);;\n")
+            f.write("crop_button=Crop\n")
+            f.write("reset_crop_button=Reset Crop\n")
+            f.write("next_button=Next\n")
+            f.write("no_image_loaded_message=No image loaded. Please select an image or PDF file.\n")
+            f.write("image_load_error_message=Could not load image from '{file_path}'.\n")
+            f.write("poppler_not_configured_title=Poppler Not Configured\n")
+            f.write("poppler_not_configured_message=Poppler binaries path is not set in Preferences. PDF conversion will not work.\n")
+            f.write("poppler_executable_not_found_title=Poppler Executable Not Found\n")
+            f.write("poppler_executable_not_found_message=Poppler executable '{exe}' not found. Please check your Poppler path in Preferences.\\n\n")
+            f.write("temp_dir_error_message=Failed to create temporary directory.\n")
+            f.write("pdf_conversion_progress_format=Converting PDF... %p%\\n\n")
+            f.write("pdf_conversion_started=PDF conversion started...\\n\n")
+            f.write("converted_image_load_error=Could not load converted image from '{path}'.\\n\n")
+            f.write("pdf_output_file_missing=PDF conversion finished, but output file '{path}' is missing.\\n\n")
+            f.write("pdf_conversion_success=PDF converted successfully!\\n\n")
+            f.write("pdf_conversion_failed_title=PDF Conversion Failed\\n\n")
+            f.write("pdf_conversion_failed_message=PDF conversion failed.\\nExit Code: {exit_code}\\nError Output:\\n{error_output}\\n\n")
+            f.write("poppler_process_start_error=Failed to start Poppler process: {error}\\n\n")
+            f.write("poppler_process_error=Poppler process error.\\n\n")
+            f.write("poppler_failed_to_start=Poppler process failed to start. Check path and permissions.\\n\n")
+            f.write("poppler_crashed=Poppler process crashed.\\n\n")
+            f.write("poppler_timed_out=Poppler process timed out.\\n\n")
+            f.write("poppler_read_error=Poppler process read error.\\n\n")
+            f.write("poppler_write_error=Poppler process write error.\\n\n")
+            f.write("poppler_unknown_error=Poppler process unknown error.\\n\n")
+            f.write("warning_title=Warning\n")
+            f.write("no_crop_selection_message=Please draw a selection rectangle on the image first.\n")
+            f.write("image_item_not_found=Image item not found in scene.\n")
+            f.write("crop_failed_message=Cropping failed. Please try again.\n")
+            f.write("image_cropped_and_resized_message=Image cropped and resized to 1920x1080.\n")
+            f.write("floor_number_mandatory_message=Floor Number is a mandatory field.\n")
+            f.write("image_not_processed_message=No image has been processed. Please load, crop, and resize an image.\n")
+            f.write("image_save_error_message=Failed to save processed image to '{path}'.\n")
+            f.write("no_floors_added_message=No floors added yet for '{site_name}'. Add the first floor via the 'Floor' menu.\n")
+            f.write("current_floor_display_message=Displaying Floor {floor_number} for '{site_name}'.\n")
+            f.write("no_project_for_floor_message=Please create or open a project first before adding floors.\n")
+            f.write("floor_added_status=Floor {floor_number} added successfully.\n")
+            f.write("floor_add_failed_status=Failed to add floor.\n")
+            f.write("floor_add_cancelled_status=Floor addition cancelled.\n")
+            f.write("new_project_cancelled_full_status=New project creation cancelled because no floor was added.\n")
+            f.write("scale_line_title=Set Scale Lines\n")
+            f.write("scale_line_input_group=Define Scale Line\n")
+            f.write("line_type_label=Line Type:\n")
+            f.write("horizontal_line_type=Horizontal\n")
+            f.write("vertical_line_type=Vertical\n")
+            f.write("physical_dimension_label=Physical Dimension:\n")
+            f.write("physical_dimension_placeholder=E.g.: 40' 6\"; 40 ft 6 in; 40.5 feet; 12.34m; 12.34 meters\n")
+            f.write("current_line_pixels_label=Current Line (Pixels):\n")
+            f.write("pixels_label={pixels} px\n")
+            f.write("calculated_scale_label=Calculated Scale:\n")
+            f.write("current_scale_label={scale}\n")
+            f.write("set_line_button=Set Line\n")
+            f.write("unit_feet=ft\n")
+            f.write("unit_meters=m\n")
+            f.write("no_line_to_set_message=No line is currently displayed or it has zero length. Please adjust a line or ensure one is visible.\n")
+            f.write("physical_dimension_mandatory_message=Physical Dimension is a mandatory field.\n")
+            f.write("horizontal_line_set_status=Horizontal scale line set to '{dim}'.\n")
+            f.write("vertical_line_set_status=Vertical line set to '{dim}'.\n")
+            f.write("at_least_one_scale_line_mandatory=Please set at least one scale line (horizontal or vertical).\n")
+            f.write("select_line_type_message=Please select a line type (Horizontal or Vertical) first.\n")
+            f.write("no_floor_to_set_scale_message=No floor is currently loaded to set scale lines.\n")
+            f.write("scale_lines_set_status=Scale lines set for Floor {floor_number}.\n")
+            f.write("scale_lines_cancelled_status=Scale line setup cancelled for Floor {floor_number}.\n")
+            f.write("image_load_error_for_display=Could not load map for Floor {floor_number} of '{site_name}'.\n")
+            f.write("no_map_for_current_floor_message=No map image available for Floor {floor_number} of '{site_name}'. Please add or edit the floor map.\n")
+            f.write("enter_horizontal_dimension_message=Step 1: Enter the physical dimension for the pre-drawn horizontal line.\n")
+            f.write("edit_horizontal_dimension_message=Adjust the horizontal line by dragging its ends, then enter its physical dimension.\n")
+            f.write("edit_vertical_dimension_message=Adjust the vertical line by dragging its ends, then enter its physical dimension.\n")
+            f.write("edit_scale_lines_message=Scale lines set. You can adjust them by dragging the ends, or click OK.\n")
+            f.write("both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.\n")
+            f.write("auto_vertical_line_proposed_status=Vertical line auto-proposed based on horizontal: '{dim}'. Adjust if needed.\n")
+
+    # For standalone testing, create a dummy temporary directory
+    temp_test_dir = QTemporaryDir()
+    if not temp_test_dir.isValid():
+        print("ERROR: Could not create temporary directory for standalone test.")
+        sys.exit(1)
+    temp_project_dir_path_for_test = temp_test_dir.path()
+    print(f"DEBUG: Standalone test using temp dir: {temp_project_dir_path_for_test}")
+
+    # Create a dummy image for testing that has black lines on a white background
+    temp_test_image_path = os.path.join(temp_project_dir_path_for_test, "dummy_floor_plan_1920x1080.png")
+    if not os.path.exists(temp_test_image_path):
+        dummy_image = QImage(1920, 1080, QImage.Format_RGB32)
+        dummy_image.fill(Qt.white) # Fill with white background
+
+        painter = QPainter(dummy_image)
+        painter.setPen(QPen(Qt.black, 2)) # Black pen for drawing lines
+
+        # Draw a topmost horizontal line (length 1700px)
+        painter.drawLine(100, 200, 1800, 200) 
+
+        # Draw leftmost and rightmost vertical lines (length 950px each)
+        painter.drawLine(100, 50, 100, 1000) 
+        painter.drawLine(1800, 50, 1800, 1000) 
+
+        painter.end()
+        dummy_image.save(temp_test_image_path)
+        print(f"Created dummy image with lines: {temp_test_image_path}")
+
+    main_window = MainWindow(dummy_config, dummy_i18n, debug_mode=True)
+    main_window.show()
+    sys.exit(app.exec_())
