@@ -102,4 +102,3 @@ class ConfigManager:
             dict: A copy of the current configuration.
         """
         return self.config.copy()
-

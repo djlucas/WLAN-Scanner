@@ -167,3 +167,5 @@ edit_vertical_dimension_message=Adjust the vertical line by dragging its ends, t
 edit_scale_lines_message=Scale lines set. You can adjust them by dragging the ends, or click OK.
 both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.
 auto_vertical_line_proposed_status=Vertical line auto-proposed based on horizontal: '{dim}'. Adjust if needed.
+detecting_lines_message=Detecting lines, please wait...
+both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.

@@ -4,7 +4,7 @@ import os
 import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QAction, QMessageBox,
-    QVBoxLayout, QWidget, QLabel, QDialog
+    QVBoxLayout, QWidget, QLabel, QDialog, QComboBox
 )
 from PyQt5.QtCore import Qt, QTemporaryDir
 from PyQt5.QtGui import QPixmap
@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
 
         self.current_project = None # MapProject object
         self.current_floor_pixmap = None # QPixmap of the currently displayed floor map
+        self.project_temp_dir = None # Persistent QTemporaryDir for the project
 
         self.setWindowTitle(self.i18n.get_string("app_title_placeholder"))
         self.setMinimumSize(1024, 768)
@@ -64,6 +65,12 @@ class MainWindow(QMainWindow):
         self.map_display_label.setStyleSheet("QLabel { border: 1px solid #ccc; background-color: #f0f0f0; }")
         self.map_display_label.setMinimumSize(800, 600)
         main_layout.addWidget(self.map_display_label)
+
+        # Floor selector
+        self.floor_selector = QComboBox()
+        self.floor_selector.setVisible(False)
+        self.floor_selector.currentIndexChanged.connect(self._floor_selected)
+        main_layout.addWidget(self.floor_selector)
 
         # Status bar
         self.statusBar().showMessage(self.i18n.get_string("ready_status"))
@@ -200,6 +207,7 @@ class MainWindow(QMainWindow):
         if site_info_dialog.exec_() == QDialog.Accepted:
             # Site info collected, proceed to add first floor
             self.current_project = MapProject(site_info=new_site_info)
+            self.project_temp_dir = QTemporaryDir()
             self.statusBar().showMessage(self.i18n.get_string("new_project_created_status").format(site_name=self.current_project.site_info.site_name))
             if self.debug_mode:
                 print(f"DEBUG: New project created with site info: {self.current_project.site_info.to_dict()}")
@@ -272,20 +280,14 @@ class MainWindow(QMainWindow):
                 print("DEBUG: Cannot add floor: No project loaded.")
             return
 
-        # Create a temporary directory for floor import process
-        # This temp dir will be passed to the dialog and managed internally by it.
-        temp_project_dir = QTemporaryDir()
-        if not temp_project_dir.isValid():
+        if not self.project_temp_dir or not self.project_temp_dir.isValid():
             QMessageBox.critical(self, self.i18n.get_string("error_title"),
                                  self.i18n.get_string("temp_dir_error_message"))
             if self.debug_mode:
-                print("ERROR: Failed to create temporary directory for floor import.")
+                print("ERROR: Project temporary directory is not valid.")
             return
 
-        if self.debug_mode:
-            print(f"DEBUG: Temporary directory for floor import: {temp_project_dir.path()}")
-
-        dialog = FloorImportDialog(self.config_manager, self.i18n, temp_project_dir.path(), debug_mode=self.debug_mode, parent=self)
+        dialog = FloorImportDialog(self.config_manager, self.i18n, self.project_temp_dir.path(), debug_mode=self.debug_mode, parent=self)
         if dialog.exec_() == QDialog.Accepted:
             floor_data = dialog.get_floor_data()
             if floor_data:
@@ -297,13 +299,23 @@ class MainWindow(QMainWindow):
                 )
                 self.current_project.floors.append(new_floor)
                 self.current_project.current_floor_index = len(self.current_project.floors) - 1
+                self._update_floor_selector()
                 self._display_current_floor_map()
                 self.statusBar().showMessage(self.i18n.get_string("floor_added_status").format(floor_number=new_floor.floor_number))
                 if self.debug_mode:
                     print(f"DEBUG: Floor {new_floor.floor_number} added to project. Original: {new_floor.original_image_path}, Cropped: {new_floor.cropped_image_path}, Scaled: {new_floor.scaled_image_path}")
                 
                 # After adding the floor, immediately open the ScaleLineDialog
-                self._set_scale_lines_for_current_floor(is_first_floor_setup=is_first_floor)
+                if new_floor.scaled_image_path and os.path.exists(new_floor.scaled_image_path):
+                    self._set_scale_lines_for_current_floor(is_first_floor_setup=is_first_floor)
+                else:
+                    QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                        self.i18n.get_string("no_map_for_current_floor_message").format(
+                                            floor_number=new_floor.floor_number,
+                                            site_name=self.current_project.site_info.site_name
+                                        ))
+                    if self.debug_mode:
+                        print(f"DEBUG: Cannot set scale lines: Scaled image not found for floor {new_floor.floor_number}.")
             else:
                 self.statusBar().showMessage(self.i18n.get_string("floor_add_failed_status"))
                 if self.debug_mode:
@@ -320,10 +332,6 @@ class MainWindow(QMainWindow):
                 # If it was the first floor setup and it was cancelled, cancel project creation
                 self.current_project = None
                 self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_full_status"))
-        
-        # The QTemporaryDir object will clean up automatically when it goes out of scope.
-        if self.debug_mode:
-            print(f"DEBUG: Temporary directory for floor import removed: {temp_project_dir.path()}")
 
 
     def _edit_current_floor_map(self):
@@ -341,26 +349,19 @@ class MainWindow(QMainWindow):
 
         current_floor = self.current_project.floors[self.current_project.current_floor_index]
         
-        # Create a temporary directory for floor import process
-        temp_project_dir = QTemporaryDir()
-        if not temp_project_dir.isValid():
+        if not self.project_temp_dir or not self.project_temp_dir.isValid():
             QMessageBox.critical(self, self.i18n.get_string("error_title"),
                                  self.i18n.get_string("temp_dir_error_message"))
             if self.debug_mode:
-                print("ERROR: Failed to create temporary directory for floor map edit.")
+                print("ERROR: Project temporary directory is not valid.")
             return
-
-        if self.debug_mode:
-            print(f"DEBUG: Temporary directory for floor map edit: {temp_project_dir.path()}")
 
         # Pass existing image paths to the dialog for pre-filling/re-editing
         dialog = FloorImportDialog(
-            self.config_manager, self.i18n, temp_project_dir.path(),
+            self.config_manager, self.i18n, self.project_temp_dir.path(),
             debug_mode=self.debug_mode, parent=self,
             initial_floor_number=current_floor.floor_number,
-            initial_original_image_path=current_floor.original_image_path,
-            initial_cropped_image_path=current_floor.cropped_image_path,
-            initial_scaled_image_path=current_floor.scaled_image_path
+            initial_original_image_path=current_floor.original_image_path
         )
         if dialog.exec_() == QDialog.Accepted:
             floor_data = dialog.get_floor_data()
@@ -422,13 +423,23 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(self.i18n.get_string("scale_lines_cancelled_status").format(floor_number=current_floor.floor_number))
             if self.debug_mode:
                 print(f"DEBUG: Scale line setup cancelled for Floor {current_floor.floor_number}.")
-            if is_first_floor_setup:
-                # If scale line setup is cancelled during initial project creation,
-                # consider the whole project creation cancelled.
-                self.current_project = None
-                self.statusBar().showMessage(self.i18n.get_string("new_project_cancelled_full_status"))
-                if self.debug_mode:
-                    print("DEBUG: First floor setup cancelled, rolling back new project.")
+
+    def _update_floor_selector(self):
+        """Updates the floor selector dropdown with the current floors."""
+        self.floor_selector.clear()
+        if self.current_project and len(self.current_project.floors) > 1:
+            for floor in self.current_project.floors:
+                self.floor_selector.addItem(floor.floor_number)
+            self.floor_selector.setCurrentIndex(self.current_project.current_floor_index)
+            self.floor_selector.setVisible(True)
+        else:
+            self.floor_selector.setVisible(False)
+
+    def _floor_selected(self, index):
+        """Handles floor selection from the dropdown."""
+        if self.current_project and index >= 0:
+            self.current_project.current_floor_index = index
+            self._display_current_floor_map()
 
 
     def _display_current_floor_map(self):

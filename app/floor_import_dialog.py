@@ -24,7 +24,10 @@ class FloorImportDialog(QDialog):
     allowing for cropping, and resizing to a consistent 1920x1080 resolution.
     Handles PDF conversion using Poppler.
     """
-    def __init__(self, config_manager, i18n_manager, temp_project_dir_path, debug_mode=False, parent=None):
+    def __init__(self, config_manager, i18n_manager, temp_project_dir_path,
+                 debug_mode=False, parent=None, initial_floor_number=None,
+                 initial_original_image_path=None, initial_cropped_image_path=None,
+                 initial_scaled_image_path=None):
         """
         Initializes the FloorImportDialog.
 
@@ -34,12 +37,16 @@ class FloorImportDialog(QDialog):
             temp_project_dir_path (str): The path to the main window's temporary project directory.
             debug_mode (bool): If True, enables extensive debug logging.
             parent (QWidget, optional): The parent widget. Defaults to None.
+            initial_floor_number (str, optional): The initial floor number to populate.
+            initial_original_image_path (str, optional): The path to the original image.
+            initial_cropped_image_path (str, optional): The path to the cropped image.
+            initial_scaled_image_path (str, optional): The path to the scaled image.
         """
         super().__init__(parent)
         self.config_manager = config_manager
         self.i18n = i18n_manager
-        self.temp_project_dir_path = temp_project_dir_path # Store the path from MainWindow
-        self.debug_mode = debug_mode # Store debug mode
+        self.temp_project_dir_path = temp_project_dir_path
+        self.debug_mode = debug_mode
         if self.debug_mode:
             print("DEBUG: FloorImportDialog initialized in DEBUG_MODE.")
 
@@ -47,26 +54,32 @@ class FloorImportDialog(QDialog):
         self.setMinimumSize(800, 600)
         self.setModal(True)
 
-        self.initial_loaded_pixmap = None # Stores the very first loaded pixmap (or converted PDF page)
-        self.current_display_pixmap = None # Stores the pixmap currently displayed and manipulated
+        self.initial_loaded_pixmap = None
+        self.current_display_pixmap = None
 
-        self.crop_rect_item = None        # QGraphicsRectItem for the cropping selection
-        self.shading_item = None          # QGraphicsPathItem for the unified shading
-        self.start_point = QPointF()      # Start point for drawing crop rectangle
-        self.end_point = QPointF()        # End point for drawing crop rectangle
-        self.is_drawing = False           # Flag for drawing a NEW crop rectangle
-        self.resize_mode = None           # Stores "top_left", "bottom_right", etc. if resizing
-        self.drag_start_rect = None       # Stores the rect at the start of a resize operation
+        self.crop_rect_item = None
+        self.shading_item = None
+        self.start_point = QPointF()
+        self.end_point = QPointF()
+        self.is_drawing = False
+        self.resize_mode = None
+        self.drag_start_rect = None
 
-        self.cropped_image_data = None    # Stores QImage of the cropped area (intermediate)
-        self.intermediate_cropped_image_path = None # Path to the saved cropped image (before 1920x1080 scaling)
-        self.final_scaled_image_path = None # Path where the final 1920x1080 image will be saved by this dialog
+        self.cropped_image_data = None
+        self.intermediate_cropped_image_path = initial_cropped_image_path
+        self.final_scaled_image_path = initial_scaled_image_path
 
-        self.poppler_process = None # QProcess for Poppler execution
-        self.pdf_temp_dir = None # Persistent temporary directory for PDF conversion output
+        self.poppler_process = None
+        self.pdf_temp_dir = None
 
         self._init_ui()
-        self._reset_all_dialog_state() # Initial full reset
+        self._reset_all_dialog_state()
+
+        if initial_floor_number:
+            self.floor_number_input.setText(initial_floor_number)
+        if initial_original_image_path:
+            self.file_path_input.setText(initial_original_image_path)
+            self._load_image_or_pdf(initial_original_image_path)
 
         # Connect dialog's finished signal to clean up PDF temp dir if it was used
         self.finished.connect(self._cleanup_pdf_temp_dir)
@@ -804,20 +817,8 @@ class FloorImportDialog(QDialog):
         # Resize to 1920x1080, maintaining aspect ratio
         target_width = 1920
         target_height = 1080
-        scaled_image = QImage(target_width, target_height, QImage.Format_RGB32) # Create a blank image
-
-        # Get the color of the top-left pixel of the cropped image
-        # This assumes the top-left pixel is representative of the desired background color.
-        if not cropped_image.isNull() and cropped_image.width() > 0 and cropped_image.height() > 0:
-            background_color = cropped_image.pixelColor(0, 0) # Get color of top-left pixel
-            if self.debug_mode:
-                print(f"DEBUG: Using cropped image's top-left pixel color for background: {background_color.name()}")
-        else:
-            background_color = Qt.white # Fallback to white if cropped image is invalid
-            if self.debug_mode:
-                print("DEBUG: Cropped image invalid, falling back to white background.")
-
-        scaled_image.fill(background_color) # Fill with the determined background color
+        scaled_image = QImage(target_width, target_height, QImage.Format_RGB32)
+        scaled_image.fill(Qt.white)
 
         painter = QPainter(scaled_image)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -827,7 +828,6 @@ class FloorImportDialog(QDialog):
         img_width = cropped_image.width()
         img_height = cropped_image.height()
 
-        # Avoid division by zero if image has zero dimensions
         if img_width == 0 or img_height == 0:
             QMessageBox.warning(self, self.i18n.get_string("warning_title"),
                                 "Cropped image has zero dimensions, cannot scale.")
@@ -842,11 +842,9 @@ class FloorImportDialog(QDialog):
         new_width = int(img_width * scale)
         new_height = int(img_height * scale)
 
-        # Calculate position to center the image
         x_offset = (target_width - new_width) // 2
         y_offset = (target_height - new_height) // 2
 
-        # Draw the scaled cropped image onto the blank canvas
         painter.drawImage(QRect(x_offset, y_offset, new_width, new_height), cropped_image)
         painter.end()
 

@@ -4,7 +4,7 @@ import os
 import sys
 import re
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog,
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem,
     QGroupBox, QComboBox, QStatusBar
@@ -99,6 +99,7 @@ class ScaleLineDialog(QDialog):
         self.graphics_view.mousePressEvent = self._mouse_press_event
         self.graphics_view.mouseMoveEvent = self._mouse_move_event
         self.graphics_view.mouseReleaseEvent = self._mouse_release_event
+        self.graphics_view.wheelEvent = self._wheel_event
 
         main_layout.addWidget(self.graphics_view)
 
@@ -151,9 +152,9 @@ class ScaleLineDialog(QDialog):
 
     def _detect_lines_and_get_coords(self, min_line_length=300):
         """
-        Analyzes the current pixmap to detect the topmost horizontal line and
-        the leftmost/rightmost vertical lines based on black pixels.
-        Returns (topmost_y, leftmost_x, rightmost_x).
+        Analyzes the current pixmap to detect the topmost and bottommost horizontal lines,
+        and the leftmost/rightmost vertical lines based on black pixels.
+        Returns (topmost_y, bottommost_y, leftmost_x, rightmost_x).
         If no lines are detected, falls back to default positions.
         """
         image = self.current_pixmap.toImage()
@@ -161,10 +162,11 @@ class ScaleLineDialog(QDialog):
         image_height = image.height()
 
         topmost_y = -1
-        leftmost_x = image_width # Initialize to max to find min
-        rightmost_x = -1 # Initialize to min to find max
+        bottommost_y = -1
+        leftmost_x = image_width
+        rightmost_x = -1
 
-        COLOR_TOLERANCE = 10 # Tolerance for near-black
+        COLOR_TOLERANCE = 10
 
         def is_near_black(color):
             return color.red() < COLOR_TOLERANCE and \
@@ -179,28 +181,38 @@ class ScaleLineDialog(QDialog):
                 if is_near_black(pixel_color):
                     consecutive_black_pixels += 1
                 else:
-                    consecutive_black_pixels = 0 # Reset count if not black
+                    consecutive_black_pixels = 0
                 
                 if consecutive_black_pixels >= min_line_length:
                     topmost_y = y
                     if self.debug_mode:
                         print(f"DEBUG: Detected topmost horizontal line at Y: {topmost_y} (length >= {min_line_length} pixels)")
-                    break # Found a sufficiently long horizontal line in this row
+                    break
             if topmost_y != -1:
-                break # Found the topmost line, no need to check further rows
+                break
 
-        # If no line detected, fall back to default placement (e.g., 10% from top)
-        if topmost_y == -1:
-            topmost_y = int(image_height * 0.1)
-            if self.debug_mode:
-                print("DEBUG: No distinct topmost horizontal line detected. Defaulting topmost_y placement.")
+        # Find bottommost horizontal line
+        for y in range(image_height - 1, -1, -1):
+            consecutive_black_pixels = 0
+            for x in range(image_width):
+                pixel_color = QColor(image.pixel(x, y))
+                if is_near_black(pixel_color):
+                    consecutive_black_pixels += 1
+                else:
+                    consecutive_black_pixels = 0
+                
+                if consecutive_black_pixels >= min_line_length:
+                    bottommost_y = y
+                    if self.debug_mode:
+                        print(f"DEBUG: Detected bottommost horizontal line at Y: {bottommost_y} (length >= {min_line_length} pixels)")
+                    break
+            if bottommost_y != -1:
+                break
 
         # Find leftmost and rightmost vertical lines
-        # Iterate through columns
-        for x_coord in range(image_width): # Renamed to x_coord to avoid conflict with loop variable x
+        for x_coord in range(image_width):
             consecutive_black_pixels = 0
-            found_vertical_line_in_column = False
-            for y_coord in range(image_height): # Renamed to y_coord
+            for y_coord in range(image_height):
                 pixel_color = QColor(image.pixel(x_coord, y_coord))
                 if is_near_black(pixel_color):
                     consecutive_black_pixels += 1
@@ -208,37 +220,23 @@ class ScaleLineDialog(QDialog):
                     consecutive_black_pixels = 0
                 
                 if consecutive_black_pixels >= min_line_length:
-                    # Found a sufficiently long vertical line segment in this column
-                    if x_coord < leftmost_x: # Update leftmost_x if this is further left
+                    if x_coord < leftmost_x:
                         leftmost_x = x_coord
-                    if x_coord > rightmost_x: # Update rightmost_x if this is further right
+                    if x_coord > rightmost_x:
                         rightmost_x = x_coord
-                    found_vertical_line_in_column = True
-                    # Do not break here, continue to find the extent of this vertical line
-            # After checking all pixels in a column, if a vertical line was found
-            if found_vertical_line_in_column:
-                if self.debug_mode:
-                    print(f"DEBUG: Found vertical line segment in column X: {x_coord} (length >= {min_line_length} pixels)")
+                    break
 
-
-        # If no vertical lines detected, fall back to default
-        if leftmost_x == image_width: # Still at initial max value, means no lines found
+        # Fallbacks
+        if topmost_y == -1:
+            topmost_y = int(image_height * 0.1)
+        if bottommost_y == -1:
+            bottommost_y = int(image_height * 0.9)
+        if leftmost_x == image_width:
             leftmost_x = int(image_width * 0.1)
-            if self.debug_mode:
-                print("DEBUG: No distinct leftmost vertical line detected. Defaulting leftmost_x placement.")
-        else:
-            if self.debug_mode:
-                print(f"DEBUG: Final detected leftmost vertical line at X: {leftmost_x}")
-
-        if rightmost_x == -1: # Still at initial min value, means no lines found
+        if rightmost_x == -1:
             rightmost_x = int(image_width * 0.9)
-            if self.debug_mode:
-                print("DEBUG: No distinct rightmost vertical line detected. Defaulting rightmost_x placement.")
-        else:
-            if self.debug_mode:
-                print(f"DEBUG: Final detected rightmost vertical line at X: {rightmost_x}")
 
-        return topmost_y, leftmost_x, rightmost_x
+        return topmost_y, bottommost_y, leftmost_x, rightmost_x
 
 
     def _auto_place_initial_horizontal_line(self):
@@ -246,38 +244,33 @@ class ScaleLineDialog(QDialog):
         Automatically places a default horizontal line on the map,
         75px above the topmost detected line, spanning leftmost to rightmost detected vertical lines.
         """
-        topmost_detected_y, leftmost_detected_x, rightmost_detected_x = self._detect_lines_and_get_coords()
+        self._status_bar.showMessage(self.i18n.get_string("detecting_lines_message"))
+        self.set_controls_enabled(False)
+        QApplication.processEvents() # Allow UI to update
+
+        topmost_detected_y, _, leftmost_detected_x, rightmost_detected_x = self._detect_lines_and_get_coords()
         
-        # Calculate the Y position for the horizontal scale line (75px above the detected line)
-        # Ensure it doesn't go off the top of the image
         horizontal_line_y = max(0, topmost_detected_y - 75)
         
-        # Use detected X coordinates for start and end points
         x1 = leftmost_detected_x
         x2 = rightmost_detected_x
-        y = horizontal_line_y # Both points have the same Y for a horizontal line
+        y = horizontal_line_y
 
-        # Create a ScaleLine object for initial display
-        # We use a placeholder physical dimension, user will input real value
-        # The physical dimension value here is a default in meters, as per data_models.py
-        self.horizontal_line_data = ScaleLine(x1, y, x2, y, 30.48, True, "m") # Default to 100ft (30.48m)
+        self.horizontal_line_data = ScaleLine(x1, y, x2, y, 30.48, True, "m")
         
-        # Redraw all lines to display this new horizontal line with its style and tick marks
         self._redraw_all_lines()
         
-        # Update UI fields for this pre-placed line
         self.line_type_combo.setCurrentText(self.i18n.get_string("horizontal_line_type"))
-        # DO NOT set text here, rely on placeholder for initial display
-        # self.physical_dimension_input.setText(self._format_physical_dimension_for_display(self.horizontal_line_data.physical_dimension_value, self.horizontal_line_data.physical_dimension_unit))
-        self._update_calculated_scale() # This will update labels
+        self._update_calculated_scale()
         self._status_bar.showMessage(self.i18n.get_string("enter_horizontal_dimension_message"))
+        self.set_controls_enabled(True)
         if self.debug_mode:
             print(f"DEBUG: Auto-placed initial horizontal line: {self.horizontal_line_data.to_dict()}")
 
 
     def _display_image(self):
         """
-        Displays the floor plan image in the QGraphicsView.
+        Displays the floor plan image in the QGraphicsView, slightly zoomed out.
         """
         if self.debug_mode:
             print("DEBUG: _display_image called.")
@@ -286,10 +279,11 @@ class ScaleLineDialog(QDialog):
         self.graphics_scene.addItem(pixmap_item)
         self.graphics_scene.setSceneRect(pixmap_item.boundingRect())
         self.graphics_view.fitInView(pixmap_item, Qt.KeepAspectRatio)
+        self.graphics_view.scale(0.95, 0.95) # Zoom out slightly
         self.graphics_view.setSceneRect(pixmap_item.boundingRect()) # Set scene rect after fitInView
         self.graphics_view.viewport().update() # Force repaint
 
-        self._redraw_all_lines() # Redraw any existing lines
+        self._redraw_all_lines()
 
     def _draw_scale_marker(self, scale_line_obj, is_current_selection=False):
         """
@@ -411,15 +405,25 @@ class ScaleLineDialog(QDialog):
         if not line_item:
             return None
         line = line_item.line()
-        tolerance = 10 # pixels
-        start_rect = QRectF(line.p1().x() - tolerance, line.p1().y() - tolerance, 2*tolerance, 2*tolerance)
-        end_rect = QRectF(line.p2().x() - tolerance, line.p2().y() - tolerance, 2*tolerance, 2*tolerance)
+        tolerance = 20  # Increased tolerance for easier grabbing
+        start_rect = QRectF(line.p1().x() - tolerance, line.p1().y() - tolerance, 2 * tolerance, 2 * tolerance)
+        end_rect = QRectF(line.p2().x() - tolerance, line.p2().y() - tolerance, 2 * tolerance, 2 * tolerance)
 
         if start_rect.contains(scene_pos):
             return "start"
         elif end_rect.contains(scene_pos):
             return "end"
         return None
+
+    def _wheel_event(self, event):
+        """Handles mouse wheel event for zooming."""
+        zoom_in_factor = 1.25
+        zoom_out_factor = 1 / zoom_in_factor
+
+        if event.angleDelta().y() > 0:
+            self.graphics_view.scale(zoom_in_factor, zoom_in_factor)
+        else:
+            self.graphics_view.scale(zoom_out_factor, zoom_out_factor)
 
     def _mouse_press_event(self, event):
         """Handles mouse press event for starting line dragging."""
@@ -593,33 +597,21 @@ class ScaleLineDialog(QDialog):
 
             # --- Automatically propose and draw vertical line if horizontal is set ---
             if self.horizontal_line_data and not self.vertical_line_data:
-                h_line_pixels = self.horizontal_line_data.pixel_length
-                h_line_physical_value = self.horizontal_line_data.physical_dimension_value # This is in meters
-                h_line_physical_unit = self.horizontal_line_data.physical_dimension_unit # This is 'm'
+                topmost_y, bottommost_y, leftmost_x, _ = self._detect_lines_and_get_coords()
 
-                # Calculate coordinates for a vertical line of the same pixel length
-                # Position it on the left side, centered vertically
-                image_width = self.current_pixmap.width()
-                image_height = self.current_pixmap.height()
-                
-                x_pos = image_width * 0.05 # 5% from left edge
-                y_center = image_height / 2
-                y1_v = y_center - (h_line_pixels / 2)
-                y2_v = y_center + (h_line_pixels / 2)
+                h_line_physical_value = self.horizontal_line_data.physical_dimension_value
+                h_line_physical_unit = self.horizontal_line_data.physical_dimension_unit
 
-                # Ensure coordinates are within image bounds
-                y1_v = max(0.0, y1_v)
-                y2_v = min(float(image_height), y2_v)
+                x_pos = max(0, leftmost_x - 75)
+                y1_v = topmost_y
+                y2_v = bottommost_y
 
                 self.vertical_line_data = ScaleLine(
                     x_pos, y1_v, x_pos, y2_v, h_line_physical_value, False, h_line_physical_unit
                 )
-                self._redraw_all_lines() # Redraw both lines, ensuring vertical is drawn
+                self._redraw_all_lines()
 
-                # Update UI to reflect the newly proposed vertical line
                 self.line_type_combo.setCurrentText(self.i18n.get_string("vertical_line_type"))
-                # Format the physical dimension text for display in the input field
-                # Convert from meters (h_line_physical_value) to display unit based on config
                 display_value = h_line_physical_value
                 display_unit = "m"
                 if self.config_manager.get("measurement_system", "Imperial") == "Imperial":
@@ -629,7 +621,7 @@ class ScaleLineDialog(QDialog):
                 physical_text_for_input = self._format_physical_dimension_for_display(display_value, display_unit)
                 
                 self.physical_dimension_input.setText(physical_text_for_input)
-                self._update_calculated_scale() # Recalculate and display scale for vertical line
+                self._update_calculated_scale()
                 self._status_bar.showMessage(self.i18n.get_string("auto_vertical_line_proposed_status").format(dim=physical_text_for_input))
                 if self.debug_mode:
                     print(f"DEBUG: Auto-proposed vertical line. Data: {self.vertical_line_data.to_dict()}")
@@ -671,10 +663,10 @@ class ScaleLineDialog(QDialog):
 
     def _update_ok_button_state(self):
         """
-        Enables the OK button only if at least one scale line (horizontal or vertical)
-        has been set. Also updates status bar messages.
+        Enables the OK button only if both horizontal and vertical scale lines have been set.
+        Also updates status bar messages.
         """
-        is_ok_enabled = (self.horizontal_line_data is not None) or \
+        is_ok_enabled = (self.horizontal_line_data is not None) and \
                         (self.vertical_line_data is not None)
         self.ok_button.setEnabled(is_ok_enabled)
         if self.debug_mode:
@@ -701,15 +693,15 @@ class ScaleLineDialog(QDialog):
 
     def _validate_and_accept(self):
         """
-        Validates that at least one scale line has been set before accepting the dialog.
+        Validates that both horizontal and vertical scale lines have been set before accepting the dialog.
         """
         if self.debug_mode:
             print("DEBUG: _validate_and_accept called.")
-        if self.horizontal_line_data is None and self.vertical_line_data is None:
+        if self.horizontal_line_data is None or self.vertical_line_data is None:
             QMessageBox.warning(self, self.i18n.get_string("validation_error_title"),
-                                self.i18n.get_string("at_least_one_scale_line_mandatory"))
+                                self.i18n.get_string("both_scale_lines_mandatory"))
             if self.debug_mode:
-                print("DEBUG: Validation failed: No scale lines set.")
+                print("DEBUG: Validation failed: Both scale lines not set.")
             return
         self.accept()
 
@@ -720,6 +712,14 @@ class ScaleLineDialog(QDialog):
         if self.debug_mode:
             print(f"DEBUG: get_scale_lines returning H: {self.horizontal_line_data}, V: {self.vertical_line_data}")
         return self.horizontal_line_data, self.vertical_line_data
+
+    def set_controls_enabled(self, enabled):
+        """Enables or disables the dialog controls."""
+        self.line_type_combo.setEnabled(enabled)
+        self.physical_dimension_input.setEnabled(enabled)
+        self.set_line_button.setEnabled(enabled)
+        self.ok_button.setEnabled(enabled)
+        self.cancel_button.setEnabled(enabled)
 
 # --- For standalone testing of the dialog (optional) ---
 if __name__ == '__main__':
