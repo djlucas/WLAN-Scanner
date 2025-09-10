@@ -79,8 +79,8 @@ pip install -r requirements.txt
 3.  **Configure Poppler**:
     The application needs the path to the `poppler` binaries (e.g., `pdftoppm.exe`). You will be prompted to set this path in the Preferences dialog upon the first launch.
 
-4.  **Place Scan Scripts**:
-    Ensure the platform-specific scan scripts (`scan_win.ps1` and `scan_unix.sh`) are in the root directory and are executable.
+4.  **Scan Scripts**:
+    The platform-specific scan scripts (`get-wlans.ps1` and `get-wlans.sh`) are included in the `scripts/` directory.
 
 ## ▶️ Usage
 
