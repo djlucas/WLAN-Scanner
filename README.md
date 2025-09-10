@@ -1,17 +1,51 @@
 # 📡 WLAN Scanner
 
-NOTE: This project is only just geting started, I haven't even gotten to AP placement and storing scan data yet. I'll update this readme when the time comes.
-
 A desktop application built with Python and PyQt5 for conducting Wi-Fi site surveys. Visualize network data directly on your floor plans, manage multi-floor projects, and generate professional reports.
 
-## ✨ Features
--   **Project Management**: Create, load, and save multi-floor survey projects.
--   **Interactive Map**: Place, move, and visualize Access Point (AP) scan data on your floor plan images.
--   **Data Collection**: Run platform-specific scripts (`scan_win.ps1` for Windows, `scan_unix.sh` for Linux/Mac) to collect wireless network data.
--   **Report Generation**: Export a comprehensive PDF report of your site survey.
--   **Internationalization (i18n)**: Supports multiple languages with easily editable text files.
--   **User Feedback**: Provides real-time status updates and uses a custom message box for a consistent UI.
--   **Robust Error Handling**: Gracefully handles script execution, JSON parsing, and file I/O errors.
+## 🚧 Development Status
+
+**Current Status: Foundation Phase (~40% Complete)**
+
+This project has a solid foundation with core UI components implemented, but WiFi scanning functionality is still in development.
+
+### ✅ **Implemented Features**
+- **Application Framework**: Complete PyQt5 application with debug modes
+- **Configuration System**: Persistent settings with JSON storage
+- **Internationalization**: Multi-language support with English translations
+- **Project Creation**: Site information collection and new project workflow
+- **Floor Plan Import**: Advanced PDF support with Poppler integration
+- **Image Processing**: Automatic cropping, scaling to 1920x1080, aspect ratio handling  
+- **Scale Line Management**: Intelligent line detection and physical dimension mapping
+- **Data Models**: Complete object model for projects, floors, APs, and scan points
+- **User Interface**: Full menu system, dialogs, and preferences management
+
+### 🟡 **Partially Implemented**
+- **Floor Management**: Can import and display floors, multi-floor navigation pending
+- **Project Management**: New project creation works, save/load functionality is placeholder
+
+### ❌ **Missing Core Features**
+- **WiFi Scanning**: No actual wireless network scanning capability yet
+- **Interactive Maps**: Cannot place or manage AP markers on floor plans
+- **Scan Point Placement**: No ability to record survey points
+- **Data Visualization**: No AP list tables or heatmap generation  
+- **Project Persistence**: Cannot save/load complete projects
+- **Report Generation**: PDF reporting system not implemented
+
+### 📋 **Planned Features**
+- **Project Management**: Create, load, and save multi-floor survey projects
+- **Interactive Map**: Place, move, and visualize Access Point (AP) scan data on floor plans
+- **Data Collection**: Run platform-specific scripts for collecting wireless network data
+- **Report Generation**: Export comprehensive PDF reports of site surveys
+- **User Feedback**: Real-time status updates with consistent UI messaging
+- **Robust Error Handling**: Comprehensive error handling for all operations
+
+### 🎯 **Next Development Priorities**
+1. Interactive map markers and AP placement (`map_view.py`, `ap_manager.py`)
+2. WiFi scanning implementation (`scan_manager.py`)
+3. Project save/load functionality (`project_exporter.py`)
+4. PDF report generation (`report_generator.py`)
+
+**Current State**: The application can create projects, import floor plans, and set scale lines, but cannot yet perform actual WiFi surveys.
 
 ## 🛠️ Prerequisites
 

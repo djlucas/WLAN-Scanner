@@ -1,4 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/config_manager.py
+#
+# Description:
+# Configuration management system for the WLAN Scanner application.
+# Handles loading, saving, and validation of application settings.
+# -----------------------------------------------------------------------------
 
 import json
 import os

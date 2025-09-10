@@ -1,4 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/i18n_manager.py
+#
+# Description:
+# Internationalization manager for the WLAN Scanner application.
+# Handles loading and retrieving translated strings from language files.
+# -----------------------------------------------------------------------------
 
 import os
 

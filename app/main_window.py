@@ -1,4 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/main_window.py
+#
+# Description:
+# Main application window for the WLAN Scanner. Handles the primary UI layout,
+# menu bar actions, project management, and coordinates interactions between
+# different dialogs and components.
+# -----------------------------------------------------------------------------
 
 import os
 import sys

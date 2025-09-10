@@ -1,4 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/data_models.py
+#
+# Description:
+# Data model classes for the WLAN Scanner application. Contains all data
+# structures for projects, floors, access points, scan points, and site info.
+# -----------------------------------------------------------------------------
 
 import json
 import re

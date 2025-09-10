@@ -1,4 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/site_info_dialog.py
+#
+# Description:
+# Dialog for entering and editing site-specific information including
+# site name, contact details, and complete address information.
+# -----------------------------------------------------------------------------
 
 import os
 from PyQt5.QtWidgets import (

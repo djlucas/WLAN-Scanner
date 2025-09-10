@@ -1,4 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/preferences_dialog.py
+#
+# Description:
+# Preferences dialog for configuring application settings including Poppler
+# path, language selection, and measurement system preferences.
+# -----------------------------------------------------------------------------
 
 import os
 import sys

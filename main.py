@@ -1,4 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # main.py
+#
+# Description:
+# Main entry point for the WLAN Scanner application. Initializes the
+# application, loads configuration, sets up internationalization, and
+# starts the main window.
+# -----------------------------------------------------------------------------
 
 import sys
 import os

@@ -1,4 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/floor_import_dialog.py
+#
+# Description:
+# Dialog for importing and processing floor plan images (JPG, PNG, PDF).
+# Handles PDF conversion via Poppler, interactive cropping, and automatic
+# scaling to 1920x1080 resolution while maintaining aspect ratio.
+# -----------------------------------------------------------------------------
 
 import os
 import sys

@@ -1,4 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# -----------------------------------------------------------------------------
+# WLAN Scanner
+#
 # app/scale_line_dialog.py
+#
+# Description:
+# Dialog for setting scale lines on floor plan images. Automatically detects
+# architectural lines and allows users to define physical dimensions for
+# accurate measurements and scaling calculations.
+# -----------------------------------------------------------------------------
 
 import os
 import sys
