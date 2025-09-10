@@ -26,6 +26,7 @@ from .preferences_dialog import PreferencesDialog
 from .site_info_dialog import SiteInformationDialog
 from .floor_import_dialog import FloorImportDialog
 from .scale_line_dialog import ScaleLineDialog
+from .interactive_map_view import InteractiveMapView
 from .data_models import MapProject, SiteInfo, Floor
 
 
@@ -53,7 +54,6 @@ class MainWindow(QMainWindow):
             print("DEBUG: MainWindow initialized in DEBUG_MODE.")
 
         self.current_project = None # MapProject object
-        self.current_floor_pixmap = None # QPixmap of the currently displayed floor map
         self.project_temp_dir = None # Persistent QTemporaryDir for the project
 
         self.setWindowTitle(self.i18n.get_string("app_title_placeholder"))
@@ -71,12 +71,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Placeholder for the map display
-        self.map_display_label = QLabel(self.i18n.get_string("no_project_loaded_message"))
-        self.map_display_label.setAlignment(Qt.AlignCenter)
-        self.map_display_label.setStyleSheet("QLabel { border: 1px solid #ccc; background-color: #f0f0f0; }")
-        self.map_display_label.setMinimumSize(800, 600)
-        main_layout.addWidget(self.map_display_label)
+        # Interactive map view
+        self.map_view = InteractiveMapView(self.i18n, debug_mode=self.debug_mode, parent=self)
+        self.map_view.ap_placed.connect(self._on_ap_placed)
+        self.map_view.scan_point_added.connect(self._on_scan_point_added)
+        main_layout.addWidget(self.map_view)
 
         # Floor selector
         self.floor_selector = QComboBox()
@@ -146,6 +145,21 @@ class MainWindow(QMainWindow):
         run_scan_action.triggered.connect(self._run_scan)
         scan_menu.addAction(run_scan_action)
 
+        scan_menu.addSeparator()
+        info_action = QAction("Place APs and Scan Points (Right-click on map)", self)
+        info_action.setEnabled(False)  # Just informational
+        scan_menu.addAction(info_action)
+
+        scan_menu.addSeparator()
+        scan_all_aps_action = QAction("Scan at All AP Locations", self)
+        scan_all_aps_action.triggered.connect(lambda: self.map_view._scan_at_all_aps())
+        scan_menu.addAction(scan_all_aps_action)
+
+        clear_scan_data_action = QAction("Clear All AP Scan Data", self)
+        clear_scan_data_action.triggered.connect(lambda: self.map_view._clear_all_ap_scan_data())
+        scan_menu.addAction(clear_scan_data_action)
+
+        scan_menu.addSeparator()
         configure_scan_tools_action = QAction(self.i18n.get_string("menu_scan_configure_scan_tools"), self)
         configure_scan_tools_action.triggered.connect(self._configure_scan_tools)
         scan_menu.addAction(configure_scan_tools_action)
@@ -456,64 +470,30 @@ class MainWindow(QMainWindow):
 
     def _display_current_floor_map(self):
         """
-        Displays the scaled image of the current floor in the map_display_label.
+        Displays the current floor in the interactive map view.
         """
         if self.current_project and self.current_project.floors:
             current_floor = self.current_project.floors[self.current_project.current_floor_index]
-            if current_floor.scaled_image_path and os.path.exists(current_floor.scaled_image_path):
-                self.current_floor_pixmap = QPixmap(current_floor.scaled_image_path)
-                if not self.current_floor_pixmap.isNull():
-                    # Scale pixmap to fit label while maintaining aspect ratio
-                    scaled_pixmap = self.current_floor_pixmap.scaled(
-                        self.map_display_label.size(),
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation
-                    )
-                    self.map_display_label.setPixmap(scaled_pixmap)
-                    self.map_display_label.setText("") # Clear "No project loaded" text
-                    self.statusBar().showMessage(
-                        self.i18n.get_string("current_floor_display_message").format(
-                            floor_number=current_floor.floor_number,
-                            site_name=self.current_project.site_info.site_name
-                        )
-                    )
-                    if self.debug_mode:
-                        print(f"DEBUG: Displaying map for Floor {current_floor.floor_number}.")
-                else:
-                    self.map_display_label.setText(
-                        self.i18n.get_string("image_load_error_for_display").format(
-                            floor_number=current_floor.floor_number,
-                            site_name=self.current_project.site_info.site_name
-                        )
-                    )
-                    self.current_floor_pixmap = None
-                    self.statusBar().showMessage(self.i18n.get_string("ready_status"))
-                    if self.debug_mode:
-                        print(f"ERROR: Could not load scaled image for floor {current_floor.floor_number}: {current_floor.scaled_image_path}")
-            else:
-                self.map_display_label.setText(
-                    self.i18n.get_string("no_map_for_current_floor_message").format(
-                        floor_number=current_floor.floor_number,
-                        site_name=self.current_project.site_info.site_name
-                    )
+            self.map_view.set_floor(current_floor)
+            self.statusBar().showMessage(
+                self.i18n.get_string("current_floor_display_message").format(
+                    floor_number=current_floor.floor_number,
+                    site_name=self.current_project.site_info.site_name
                 )
-                self.current_floor_pixmap = None
-                self.statusBar().showMessage(self.i18n.get_string("ready_status"))
-                if self.debug_mode:
-                    print(f"DEBUG: No scaled image path found or file does not exist for floor {current_floor.floor_number}.")
+            )
+            if self.debug_mode:
+                print(f"DEBUG: Displaying interactive map for Floor {current_floor.floor_number}.")
         else:
-            self.map_display_label.setText(self.i18n.get_string("no_project_loaded_message"))
-            self.current_floor_pixmap = None
+            self.map_view.set_floor(None)
             self.statusBar().showMessage(self.i18n.get_string("ready_status"))
             if self.debug_mode:
                 print("DEBUG: No project or no floors to display.")
 
     def resizeEvent(self, event):
         """
-        Handles window resize events to re-scale the displayed map.
+        Handles window resize events.
         """
         super().resizeEvent(event)
-        self._display_current_floor_map() # Re-display map to adjust to new label size
 
     # Placeholder methods for other menu actions
     def _run_scan(self):
@@ -550,6 +530,33 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, self.i18n.get_string("menu_help_about"), "WLAN Scanner Application v0.1")
         if self.debug_mode:
             print("DEBUG: About dialog called.")
+
+    def _on_ap_placed(self, placed_ap):
+        """
+        Handle signal when an AP is placed on the map
+        
+        Args:
+            placed_ap (PlacedAP): The placed AP object
+        """
+        if self.debug_mode:
+            print(f"DEBUG: AP '{placed_ap.name}' placed at ({placed_ap.map_x}, {placed_ap.map_y})")
+        
+        # Update status
+        self.statusBar().showMessage(f"Access Point '{placed_ap.name}' placed successfully")
+
+    def _on_scan_point_added(self, scan_point):
+        """
+        Handle signal when a scan point is added to the map
+        
+        Args:
+            scan_point (ScanPoint): The scan point object
+        """
+        if self.debug_mode:
+            print(f"DEBUG: Scan point added at ({scan_point.map_x}, {scan_point.map_y}) with {len(scan_point.ap_list)} APs")
+        
+        # Update status  
+        ap_count = len(scan_point.ap_list)
+        self.statusBar().showMessage(f"Scan point added - {ap_count} access points detected")
 
 # --- For standalone testing of the dialog (optional) ---
 if __name__ == '__main__':

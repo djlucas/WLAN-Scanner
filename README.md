@@ -4,9 +4,9 @@ A desktop application built with Python and PyQt5 for conducting Wi-Fi site surv
 
 ## 🚧 Development Status
 
-**Current Status: Foundation Phase (~40% Complete)**
+**Current Status: Interactive Survey Phase (~70% Complete)**
 
-This project has a solid foundation with core UI components implemented, but WiFi scanning functionality is still in development.
+The application now features a fully interactive map interface for AP placement and simulated scanning. Core survey functionality is operational with professional-grade workflow features.
 
 ### ✅ **Implemented Features**
 - **Application Framework**: Complete PyQt5 application with debug modes
@@ -18,34 +18,50 @@ This project has a solid foundation with core UI components implemented, but WiF
 - **Scale Line Management**: Intelligent line detection and physical dimension mapping
 - **Data Models**: Complete object model for projects, floors, APs, and scan points
 - **User Interface**: Full menu system, dialogs, and preferences management
+- **🆕 Interactive Map Interface**: Right-click context menus for AP placement and scanning
+- **🆕 AP Management**: Visual AP placement with drag-and-drop repositioning
+- **🆕 Scan Point System**: Add simulated scan points with network detection data
+- **🆕 Smart Workflow**: Immediate scan offers after AP placement with visual status indicators
+- **🆕 Scan Data Management**: Clear and refresh scan data while preserving AP layouts
+- **🆕 Simulated Scanning**: Realistic WiFi data generation matching actual scan script format
 
 ### 🟡 **Partially Implemented**
 - **Floor Management**: Can import and display floors, multi-floor navigation pending
 - **Project Management**: New project creation works, save/load functionality is placeholder
 
 ### ❌ **Missing Core Features**
-- **WiFi Scanning**: No actual wireless network scanning capability yet
-- **Interactive Maps**: Cannot place or manage AP markers on floor plans
-- **Scan Point Placement**: No ability to record survey points
+- **Live WiFi Scanning**: Integration with actual wireless network scanning (simulated scanning works)
 - **Data Visualization**: No AP list tables or heatmap generation  
 - **Project Persistence**: Cannot save/load complete projects
 - **Report Generation**: PDF reporting system not implemented
 
-### 📋 **Planned Features**
-- **Project Management**: Create, load, and save multi-floor survey projects
-- **Interactive Map**: Place, move, and visualize Access Point (AP) scan data on floor plans
-- **Data Collection**: Run platform-specific scripts for collecting wireless network data
-- **Report Generation**: Export comprehensive PDF reports of site surveys
-- **User Feedback**: Real-time status updates with consistent UI messaging
-- **Robust Error Handling**: Comprehensive error handling for all operations
-
 ### 🎯 **Next Development Priorities**
-1. Interactive map markers and AP placement (`map_view.py`, `ap_manager.py`)
-2. WiFi scanning implementation (`scan_manager.py`)
-3. Project save/load functionality (`project_exporter.py`)
-4. PDF report generation (`report_generator.py`)
+1. **Live WiFi Integration**: Connect simulated scanning with actual `get-wlans.ps1`/`get-wlans.sh` scripts
+2. **Data Visualization**: AP lists, signal strength tables, and coverage heatmaps
+3. **Project Persistence**: Save/load complete projects with all AP and scan data
+4. **Report Generation**: Professional PDF reports with maps, data tables, and recommendations
 
-**Current State**: The application can create projects, import floor plans, and set scale lines, but cannot yet perform actual WiFi surveys.
+### 🎮 **Interactive Features Guide**
+
+#### **AP Placement & Management:**
+- **🔵 Blue APs** = Have scan data (surveyed)
+- **🟠 Orange APs** = Need scanning (newly placed or data cleared)
+- **Right-click empty space** → "Place Access Point Here" 
+- **Right-click existing AP** → Smart context menu (Edit, Scan/Rescan, Clear data, Remove)
+- **Left-click & drag** → Move APs to new positions
+
+#### **Scanning Workflow:**
+1. Right-click to place AP → Enter name → Choose to scan immediately
+2. For existing APs: Right-click → "Scan at This AP" or "Rescan at This AP"  
+3. Bulk operations: "Scan at All AP Locations" or "Clear All AP Scan Data"
+4. Visual feedback: Scan points show as green circles with detected AP counts
+
+#### **Site Survey Management:**
+- **Initial Survey**: Place APs and scan each location
+- **Site Refresh**: "Clear All AP Scan Data" → Re-scan locations for updated data
+- **Flexible Layout**: Keep AP positions while refreshing scan data as needed
+
+**Current State**: The application provides a complete interactive survey interface with simulated scanning. Ready for live WiFi integration.
 
 ## 🛠️ Prerequisites
 
@@ -84,11 +100,33 @@ pip install -r requirements.txt
 
 ## ▶️ Usage
 
-To start the application, simply run the main Python script:
+### Quick Start
 
 ```bash
 python main.py
 ```
+
+### Basic Survey Workflow
+
+1. **Create New Project**: 
+   - File → New Project → Enter site information
+   - Import floor plan (PDF or image) → Crop and scale to 1920x1080
+   - Set scale lines for accurate measurements
+
+2. **Place Access Points**:
+   - Right-click on floor plan → "Place Access Point Here"  
+   - Enter AP name → Choose "Yes" to scan immediately
+   - AP appears blue (scanned) or orange (needs scanning)
+
+3. **Manage Scans**:
+   - Right-click existing APs for context menu options
+   - Use "Scan at All AP Locations" for bulk scanning
+   - "Clear All AP Scan Data" to refresh survey data
+
+4. **Interactive Navigation**:
+   - Drag APs to reposition them on the floor plan
+   - Green scan points show detected network counts
+   - Status bar provides visual legend for AP colors
 
 ## 🤝 Contributing
 
