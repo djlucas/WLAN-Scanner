@@ -96,5 +96,7 @@ I welcome contributions! Please feel free to fork the repository, open an issue,
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the `LICENSE` file for details.
+This project is licensed under the GNU General Public License v3.0 - see the `LICENSE` file for details.
+
+**Note**: This project uses PyQt5, which requires GPL v3 licensing for non-commercial applications under Qt's licensing terms.
 
