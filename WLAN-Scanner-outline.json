@@ -62,12 +62,12 @@
           },
           {
             "type": "class_struct",
-            "name": "ScanPoint",
-            "description": "Represents a user-defined point on the map where a scan was performed:",
+            "name": "ScanPoint", 
+            "description": "Represents a user-defined point on the map where a scan was performed (logical measurement points for signal rolloff analysis):",
             "fields": [
-              "`map_x`, `map_y` (float/integer coordinates on the scaled map image).",
+              "`map_x`, `map_y` (float/integer coordinates on the scaled map image in metric units internally).",
               "`timestamp` (datetime object).",
-              "`ap_list` (list of `APData` objects, representing all APs seen at this point)."
+              "`ap_list` (list of `APData` objects, representing all APs/BSSIDs seen at this point with measured signal strengths)."
             ]
           },
           {
@@ -80,8 +80,9 @@
               "`model` (string)",
               "`ip_address` (string)",
               "`ethernet_mac` (string)",
-              "`map_x`, `map_y` (float/integer coordinates on the scaled map image).",
+              "`map_x`, `map_y` (float/integer coordinates on the scaled map image in metric units internally).",
               "`associated_scan_data` (list of `APData` objects from the immediate scan under this AP).",
+              "`primary_bssid` (string, strongest BSSID from associated_scan_data - establishes AP identity).",
               "`timestamp_last_scan` (datetime object for the associated scan)."
             ]
           },
@@ -94,10 +95,12 @@
               "`original_image_path` (string).",
               "`cropped_image_path` (string, path to the internally saved cropped image).",
               "`scaled_image_path` (string, path to the internally saved 1920x1080 scaled image).",
-              "`scale_line_horizontal` (ScaleLine object with physical dimensions).",
-              "`scale_line_vertical` (ScaleLine object with physical dimensions).",
+              "`scale_line_horizontal` (ScaleLine object with physical dimensions for metric conversion).",
+              "`scale_line_vertical` (ScaleLine object with physical dimensions for metric conversion).",
               "`placed_aps` (list of `PlacedAP` objects).",
-              "`scan_points` (list of `ScanPoint` objects)."
+              "`scan_points` (list of `ScanPoint` objects).",
+              "`bssid_to_ap_mapping` (dict mapping BSSID strings to PlacedAP objects based on empirical scan data).",
+              "`empirical_path_loss_data` (dict storing measured signal rolloff between scan points for interpolation)."
             ]
           },
           {
@@ -181,17 +184,22 @@
         ]
       },
       {
-        "name": "Simulated Scanning System", 
+        "name": "Dual-Mode Scanning System", 
         "file": "scan_simulator.py",
-        "status": "IMPLEMENTED",
-        "description": "Realistic WiFi data generation matching actual get-wlans script format",
+        "status": "UPDATED - V1/V2 Architecture",
+        "description": "Hybrid system supporting both empirical measurement analysis (V1) and theoretical RF prediction (V2)",
         "features": [
           "JSON format matching get-wlans.ps1/sh output exactly",
-          "Realistic signal ranges (-23 to -92 dBm from actual scan data)",
-          "Proper channel/frequency mapping for 2.4GHz and 5GHz bands",
-          "Quality calculations based on signal strength",
-          "Real-world SSID patterns and network types"
-        ]
+          "V1 Mode: Empirical measurement-driven analysis using actual scan data",
+          "V2 Mode: Theoretical RF modeling for predictive/simulation scenarios",
+          "BSSID-to-AP association based on strongest signal at AP scan point",
+          "Uses actual placed AP locations from project data",
+          "Metric coordinate system for all distance calculations"
+        ],
+        "implementation_phases": {
+          "v1_empirical": "Real measurement data interpolation (current priority)",
+          "v2_theoretical": "RF formula-based prediction and 'what-if' modeling (future)"
+        }
       }
     ]
   },
@@ -304,13 +312,21 @@
       },
       {
         "priority": 2,
-        "task": "Data Visualization",
-        "description": "Heatmap generation and AP data tables",
+        "task": "V1 Empirical Data Visualization", 
+        "description": "Measurement-driven heatmap generation and analysis (Phase 1 implementation)",
         "components": [
-          "Signal strength heatmaps with realistic color gradient",
-          "Connected network focus (primary heatmap)",
-          "AP data tables with sorting/filtering",
-          "Coverage analysis and recommendations"
+          "BSSID-to-AP association algorithm (strongest signal at AP location)",
+          "Empirical path loss modeling from actual scan point measurements",
+          "Signal strength interpolation using real measurement data (V1 focus)",
+          "Metric-based distance calculations for accurate coverage modeling",
+          "Circular heatmap rendering reflecting realistic RF propagation patterns",
+          "Connected network focus with BSSID-specific signal rolloff visualization"
+        ],
+        "future_v2_components": [
+          "Theoretical RF prediction engine for AP placement optimization",
+          "Simulated coverage modeling for 'what-if' scenarios",
+          "Predictive heatmaps for unmeasured floor areas",
+          "Coverage gap prediction and recommendation algorithms"
         ]
       },
       {
@@ -333,6 +349,32 @@
           "Professional report layout with print CSS",
           "Floor plan and heatmap embedding",
           "Executive summary with coverage analysis"
+        ]
+      }
+    ],
+    "future_v2_roadmap": [
+      {
+        "priority": "Future V2.1",
+        "task": "Predictive RF Modeling Engine",
+        "description": "Theoretical RF calculations for simulation and prediction",
+        "components": [
+          "Restore and enhance theoretical RF propagation formulas",
+          "AP placement optimization algorithms", 
+          "Coverage prediction for unmeasured areas",
+          "'What-if' scenario modeling with different AP configurations",
+          "Empirical data calibration of theoretical models"
+        ]
+      },
+      {
+        "priority": "Future V2.2", 
+        "task": "Advanced Site Planning",
+        "description": "AI-assisted AP placement and coverage optimization",
+        "components": [
+          "Automatic AP placement recommendations",
+          "Coverage gap detection and resolution",
+          "Multi-floor interference modeling",
+          "Capacity planning based on user density",
+          "ROI analysis for different deployment scenarios"
         ]
       }
     ]
@@ -364,6 +406,16 @@
         "topic": "Scan Data Management",
         "decision": "Separate scan data lifecycle from AP placement",
         "rationale": "Allows site refresh surveys without losing carefully positioned AP layouts"
+      },
+      {
+        "topic": "Signal Modeling Approach",
+        "decision": "V1: Empirical measurement-driven analysis, V2: Theoretical RF prediction",
+        "rationale": "V1 focuses on accurate analysis of real scan data using empirical interpolation. V2 will add theoretical RF formulas for predictive modeling and AP placement optimization. Real measurements validate and calibrate theoretical models."
+      },
+      {
+        "topic": "Coordinate System", 
+        "decision": "Metric units for all internal distance calculations regardless of display locale",
+        "rationale": "dBm measurements require consistent metric-based distance calculations for accurate path loss modeling and coverage analysis"
       }
     ]
   },

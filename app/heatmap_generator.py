@@ -52,8 +52,8 @@ class HeatmapGenerator:
         """
         self.width = width
         self.height = height
-        self.grid_resolution = 20  # Points per heatmap grid cell
-        self.gaussian_sigma = 2.0  # Smoothing factor
+        self.grid_resolution = 15  # Moderate resolution for realistic appearance
+        self.gaussian_sigma = 1.5  # Light smoothing to preserve signal variations
 
     def generate_heatmap(self, scan_points: List[ScanPoint],
                         target_network: Optional[str] = None,
@@ -72,17 +72,8 @@ class HeatmapGenerator:
         if not scan_points:
             return self._create_empty_heatmap()
 
-        # Extract signal data from scan points
-        signal_data = self._extract_signal_data(scan_points, target_network)
-
-        if not signal_data:
-            return self._create_empty_heatmap()
-
-        # Generate interpolated heatmap
-        heatmap_array = self._interpolate_signals(signal_data)
-
-        # Convert to QPixmap with color mapping
-        return self._array_to_pixmap(heatmap_array)
+        # Use direct signal-based rendering instead of grid interpolation
+        return self._create_signal_based_heatmap(scan_points, target_network)
 
     def _extract_signal_data(self, scan_points: List[ScanPoint],
                            target_network: Optional[str]) -> List[Tuple[float, float, float]]:
@@ -210,7 +201,7 @@ class HeatmapGenerator:
 
     def _array_to_pixmap(self, heatmap_array: np.ndarray) -> QPixmap:
         """
-        Convert numpy array to QPixmap with proper color mapping.
+        Convert numpy array to QPixmap with circular signal patterns.
 
         Args:
             heatmap_array: 2D array of signal strength values
@@ -228,8 +219,11 @@ class HeatmapGenerator:
         rows, cols = heatmap_array.shape
         cell_width = self.width / cols
         cell_height = self.height / rows
+        
+        # Calculate cell radius for circular coverage
+        cell_radius = max(cell_width, cell_height) * 0.8
 
-        # Draw heatmap cells
+        # Draw heatmap cells as circles (realistic RF propagation)
         for i in range(rows):
             for j in range(cols):
                 signal_strength = heatmap_array[i, j]
@@ -241,12 +235,93 @@ class HeatmapGenerator:
                 # Get color for this signal strength
                 color = self._signal_to_color(signal_strength)
 
-                # Draw the cell
-                x = j * cell_width
-                y = i * cell_height
+                # Calculate center position
+                center_x = j * cell_width + cell_width / 2
+                center_y = i * cell_height + cell_height / 2
 
-                painter.fillRect(int(x), int(y), int(cell_width + 1), int(cell_height + 1),
-                               QBrush(color))
+                # Draw filled circle
+                painter.setBrush(QBrush(color))
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(
+                    int(center_x - cell_radius), 
+                    int(center_y - cell_radius),
+                    int(cell_radius * 2), 
+                    int(cell_radius * 2)
+                )
+
+        painter.end()
+        return pixmap
+
+    def _create_signal_based_heatmap(self, scan_points: List[ScanPoint], 
+                                   target_network: Optional[str] = None) -> QPixmap:
+        """
+        Create heatmap by drawing signal coverage circles at each scan point.
+        This represents actual measured signal strength at known locations.
+
+        Args:
+            scan_points: List of scan points containing AP data
+            target_network: Specific network SSID to focus on
+
+        Returns:
+            QPixmap with signal coverage visualization
+        """
+        pixmap = QPixmap(self.width, self.height)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
+        for scan_point in scan_points:
+            if not scan_point.ap_list:
+                continue
+
+            # Find signal strength for this point
+            signal_strength = None
+            
+            if target_network:
+                # Look for specific network
+                for ap in scan_point.ap_list:
+                    if ap.ssid == target_network:
+                        signal_strength = ap.signal_strength
+                        break
+            else:
+                # Use strongest signal at this point
+                signal_strength = max(ap.signal_strength for ap in scan_point.ap_list)
+
+            if signal_strength is None:
+                continue
+
+            # Calculate coverage radius based on signal strength
+            # Strong signals get larger coverage circles
+            if signal_strength >= -40:
+                radius = 80
+            elif signal_strength >= -50:
+                radius = 65
+            elif signal_strength >= -60:
+                radius = 50
+            elif signal_strength >= -70:
+                radius = 35
+            elif signal_strength >= -80:
+                radius = 25
+            else:
+                radius = 15
+
+            # Get color for this signal strength
+            color = self._signal_to_color(signal_strength)
+            
+            # Make circles semi-transparent so they blend
+            color.setAlpha(120)
+
+            # Draw coverage circle at scan point location
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(
+                int(scan_point.map_x - radius),
+                int(scan_point.map_y - radius),
+                int(radius * 2),
+                int(radius * 2)
+            )
 
         painter.end()
         return pixmap
@@ -262,7 +337,7 @@ class HeatmapGenerator:
             QColor for the given signal strength
         """
         for min_signal, max_signal, color in self.SIGNAL_RANGES:
-            if min_signal <= signal_strength <= max_signal:
+            if max_signal <= signal_strength <= min_signal:
                 return color
 
         # Default to blue for very weak signals

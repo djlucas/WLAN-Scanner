@@ -94,7 +94,32 @@ class InteractiveMapView(QWidget):
         """
         self.current_floor = floor
         self._load_floor_image()
+        
+        # Update simulator with actual placed APs
+        if floor and hasattr(floor, 'placed_aps') and floor.placed_aps:
+            self.simulator = ScanSimulator(
+                seed=42, 
+                floor_width=self.width(), 
+                floor_height=self.height(),
+                placed_aps=floor.placed_aps
+            )
+        else:
+            # Fallback to simulated APs if no placed APs
+            self.simulator = ScanSimulator(seed=42)
+            
         self._render_map()
+    
+    def _refresh_simulator(self):
+        """Refresh the simulator with current placed APs"""
+        if self.current_floor and hasattr(self.current_floor, 'placed_aps') and self.current_floor.placed_aps:
+            self.simulator = ScanSimulator(
+                seed=42,
+                floor_width=self.width() if self.width() > 0 else 1920,
+                floor_height=self.height() if self.height() > 0 else 1080,
+                placed_aps=self.current_floor.placed_aps
+            )
+        else:
+            self.simulator = ScanSimulator(seed=42)
         
     def _load_floor_image(self):
         """Load the floor plan image"""
@@ -312,6 +337,9 @@ class InteractiveMapView(QWidget):
     def _map_mouse_release(self, event):
         """Handle mouse release events"""
         if self.dragging_ap:
+            # Refresh simulator after AP position change
+            self._refresh_simulator()
+            
             if self.debug_mode:
                 print(f"DEBUG: AP '{self.dragging_ap.name}' moved to ({self.dragging_ap.map_x}, {self.dragging_ap.map_y})")
         
@@ -525,6 +553,9 @@ class InteractiveMapView(QWidget):
         # Add to current floor
         self.current_floor.placed_aps.append(new_ap)
         
+        # Refresh simulator with updated AP locations
+        self._refresh_simulator()
+        
         # Re-render map
         self._render_map()
         
@@ -545,7 +576,7 @@ class InteractiveMapView(QWidget):
             x, y (int): Map coordinates  
         """
         # Generate simulated scan data
-        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12))
+        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
         
         # Create scan point
         scan_point = ScanPoint(
@@ -615,7 +646,7 @@ class InteractiveMapView(QWidget):
         added_count = 0
         for ap in self.current_floor.placed_aps:
             # Generate simulated scan data for this location
-            simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(4, 10))
+            simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(4, 10), scan_x=ap.map_x, scan_y=ap.map_y)
             
             # Create scan point at AP location
             scan_point = ScanPoint(
@@ -669,7 +700,7 @@ class InteractiveMapView(QWidget):
             ap (PlacedAP): The AP to scan at
         """
         # Generate simulated scan data for this location  
-        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12))
+        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
         
         # Create scan point at AP location
         scan_point = ScanPoint(
