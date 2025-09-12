@@ -79,9 +79,11 @@ Before running the application, ensure you have the following installed:
 
 -   **Python 3.x**: The application is built with modern Python.
 -   **Poppler**: A PDF rendering library. You must configure the path to its binaries in the application's preferences.
--   **PyQt5**: The GUI framework.
+-   **PyQt5**: The GUI framework for the user interface.
+-   **NumPy**: Required for heatmap mathematical operations and signal processing.
+-   **SciPy**: Used for advanced interpolation and signal strength calculations.
 
-You can install the Python dependencies using `pip` with the provided `requirements.txt` file:
+You can install all Python dependencies using `pip` with the provided `requirements.txt` file:
 
 ```bash
 pip install -r requirements.txt
