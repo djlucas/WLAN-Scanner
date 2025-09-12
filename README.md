@@ -4,11 +4,18 @@ A desktop application built with Python and PyQt5 for conducting Wi-Fi site surv
 
 ## 🚧 Development Status
 
-**Current Status: Interactive Survey Phase (~70% Complete)**
+**Current Status: Data Visualization Phase (~75% Complete)**
 
-The application now features a fully interactive map interface for AP placement and simulated scanning. Core survey functionality is operational with professional-grade workflow features.
+The application now features complete interactive survey functionality with project persistence and initial heatmap visualization. Professional WiFi site survey workflow is fully operational.
 
-### ✅ **Implemented Features**
+### ✅ **Recently Completed Features**
+- **✨ Project Persistence**: Complete save/load functionality with ZIP-based .wls project format
+- **✨ Signal Strength Heatmaps**: Real-time circular coverage visualization with proper color mapping
+- **✨ View Menu Integration**: Toggle heatmaps and select specific networks for visualization
+- **✨ Empirical Signal Modeling**: Uses actual placed AP locations for realistic signal simulation
+- **✨ Fixed Color Bug**: Proper green/yellow/orange/red signal strength colors (no more blue artifacts)
+
+### ✅ **Core Implemented Features**
 - **Application Framework**: Complete PyQt5 application with debug modes
 - **Configuration System**: Persistent settings with JSON storage
 - **Internationalization**: Multi-language support with English translations
@@ -18,28 +25,31 @@ The application now features a fully interactive map interface for AP placement 
 - **Scale Line Management**: Intelligent line detection and physical dimension mapping
 - **Data Models**: Complete object model for projects, floors, APs, and scan points
 - **User Interface**: Full menu system, dialogs, and preferences management
-- **🆕 Interactive Map Interface**: Right-click context menus for AP placement and scanning
-- **🆕 AP Management**: Visual AP placement with drag-and-drop repositioning
-- **🆕 Scan Point System**: Add simulated scan points with network detection data
-- **🆕 Smart Workflow**: Immediate scan offers after AP placement with visual status indicators
-- **🆕 Scan Data Management**: Clear and refresh scan data while preserving AP layouts
-- **🆕 Simulated Scanning**: Realistic WiFi data generation matching actual scan script format
+- **Interactive Map Interface**: Right-click context menus for AP placement and scanning
+- **AP Management**: Visual AP placement with drag-and-drop repositioning
+- **Scan Point System**: Add simulated scan points with network detection data
+- **Smart Workflow**: Immediate scan offers after AP placement with visual status indicators
+- **Scan Data Management**: Clear and refresh scan data while preserving AP layouts
+- **Dual-Mode Scanning**: Empirical measurement analysis (V1) + theoretical RF prediction (V2 future)
 
 ### 🟡 **Partially Implemented**
+- **Data Visualization**: Heatmaps implemented, AP data tables pending
 - **Floor Management**: Can import and display floors, multi-floor navigation pending
-- **Project Management**: New project creation works, save/load functionality is placeholder
 
 ### ❌ **Missing Core Features**
-- **Live WiFi Scanning**: Integration with actual wireless network scanning (simulated scanning works)
-- **Data Visualization**: No AP list tables or heatmap generation  
-- **Project Persistence**: Cannot save/load complete projects
+- **Live WiFi Scanning**: Integration with actual wireless network scanning (simulated scanning works perfectly)
+- **AP Data Tables**: Sortable/filterable tables of scan results
 - **Report Generation**: PDF reporting system not implemented
 
 ### 🎯 **Next Development Priorities**
-1. **Live WiFi Integration**: Connect simulated scanning with actual `get-wlans.ps1`/`get-wlans.sh` scripts
-2. **Data Visualization**: AP lists, signal strength tables, and coverage heatmaps
-3. **Project Persistence**: Save/load complete projects with all AP and scan data
-4. **Report Generation**: Professional PDF reports with maps, data tables, and recommendations
+1. **Empirical Measurement Engine**: BSSID-to-AP association based on real scan data (V1 focus)
+2. **AP Data Tables**: Sortable tables with signal strength analysis and network details  
+3. **Live WiFi Integration**: Connect with actual `get-wlans.ps1`/`get-wlans.sh` scripts
+4. **Report Generation**: Professional PDF reports with maps, heatmaps, and analysis
+
+### 🔄 **V1/V2 Architecture**
+- **V1 (Current)**: Empirical measurement-driven analysis using real scan data for accurate site assessment
+- **V2 (Future)**: Theoretical RF prediction engine for AP placement optimization and "what-if" scenarios
 
 ### 🎮 **Interactive Features Guide**
 
