@@ -4,3 +4,5 @@
 # It should be used to install the project dependencies via pip.
 
 PyQt5
+numpy
+scipy

@@ -16,7 +16,7 @@ import os
 import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QAction, QMessageBox,
-    QVBoxLayout, QWidget, QLabel, QDialog, QComboBox, QFileDialog
+    QVBoxLayout, QWidget, QLabel, QDialog, QComboBox, QFileDialog, QActionGroup
 )
 from PyQt5.QtCore import Qt, QTemporaryDir
 from PyQt5.QtGui import QPixmap
@@ -178,6 +178,22 @@ class MainWindow(QMainWindow):
         toggle_ap_list_panel_action = QAction(self.i18n.get_string("menu_view_toggle_ap_list_panel"), self)
         toggle_ap_list_panel_action.triggered.connect(self._toggle_ap_list_panel)
         view_menu.addAction(toggle_ap_list_panel_action)
+
+        view_menu.addSeparator()
+
+        # Heatmap toggle
+        self.heatmap_toggle_action = QAction("Show Signal Strength Heatmap", self)
+        self.heatmap_toggle_action.setCheckable(True)
+        self.heatmap_toggle_action.setChecked(False)
+        self.heatmap_toggle_action.triggered.connect(self._toggle_heatmap)
+        view_menu.addAction(self.heatmap_toggle_action)
+
+        # Heatmap network selection submenu
+        self.heatmap_network_menu = view_menu.addMenu("Select Heatmap Network")
+        self.heatmap_network_menu.setEnabled(False)  # Disabled by default
+        self._update_heatmap_network_menu()
+
+        view_menu.addSeparator()
 
         zoom_in_action = QAction(self.i18n.get_string("menu_view_zoom_in"), self)
         zoom_in_action.triggered.connect(self._zoom_in)
@@ -642,6 +658,74 @@ class MainWindow(QMainWindow):
         if self.debug_mode:
             print("DEBUG: Generate PDF Report functionality called (not implemented).")
 
+    def _toggle_heatmap(self):
+        """Toggle heatmap display on/off"""
+        if self.current_project is None:
+            QMessageBox.warning(self, "No Project", "Please load a project with scan data to view heatmaps.")
+            self.heatmap_toggle_action.setChecked(False)
+            return
+        
+        # Get the checked state and toggle heatmap
+        heatmap_enabled = self.heatmap_toggle_action.isChecked()
+        self.map_view.set_heatmap_enabled(heatmap_enabled)
+        
+        # Enable/disable network selection menu
+        self.heatmap_network_menu.setEnabled(heatmap_enabled)
+        
+        # Update network menu when enabling
+        if heatmap_enabled:
+            self._update_heatmap_network_menu()
+        
+        status = "enabled" if heatmap_enabled else "disabled"
+        self.statusBar().showMessage(f"Signal strength heatmap {status}")
+        
+        if self.debug_mode:
+            print(f"DEBUG: Heatmap {status}")
+    
+    def _update_heatmap_network_menu(self):
+        """Update the heatmap network selection menu with available networks"""
+        self.heatmap_network_menu.clear()
+        
+        if not self.current_project:
+            return
+        
+        # Add "Strongest Signal" option (default)
+        strongest_action = QAction("Strongest Signal (All Networks)", self)
+        strongest_action.setCheckable(True)
+        strongest_action.setChecked(True)  # Default selection
+        strongest_action.triggered.connect(lambda: self._set_heatmap_network(None))
+        self.heatmap_network_menu.addAction(strongest_action)
+        
+        # Get available networks from current map
+        available_networks = self.map_view.get_available_networks()
+        
+        if available_networks:
+            self.heatmap_network_menu.addSeparator()
+            
+            # Create action group for radio button behavior
+            self.heatmap_network_group = QActionGroup(self)
+            self.heatmap_network_group.addAction(strongest_action)
+            
+            for network in available_networks:
+                action = QAction(f"Network: {network}", self)
+                action.setCheckable(True)
+                action.triggered.connect(lambda checked, ssid=network: self._set_heatmap_network(ssid))
+                self.heatmap_network_menu.addAction(action)
+                self.heatmap_network_group.addAction(action)
+        
+        if self.debug_mode:
+            print(f"DEBUG: Updated heatmap network menu with {len(available_networks)} networks")
+    
+    def _set_heatmap_network(self, network_ssid):
+        """Set the target network for heatmap display"""
+        self.map_view.set_heatmap_network(network_ssid)
+        
+        network_name = network_ssid if network_ssid else "Strongest Signal"
+        self.statusBar().showMessage(f"Heatmap showing: {network_name}")
+        
+        if self.debug_mode:
+            print(f"DEBUG: Heatmap network set to: {network_name}")
+
     def _toggle_ap_list_panel(self):
         QMessageBox.information(self, self.i18n.get_string("info_title"), "Toggle AP List Panel functionality not yet implemented.")
         if self.debug_mode:
@@ -690,6 +774,10 @@ class MainWindow(QMainWindow):
         
         # Mark project as modified
         self._mark_project_modified()
+        
+        # Update heatmap network menu if heatmap is enabled
+        if hasattr(self, 'heatmap_toggle_action') and self.heatmap_toggle_action.isChecked():
+            self._update_heatmap_network_menu()
         
         # Update status  
         ap_count = len(scan_point.ap_list)

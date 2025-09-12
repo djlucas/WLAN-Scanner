@@ -19,6 +19,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent
 from .data_models import PlacedAP, ScanPoint
 from .scan_simulator import ScanSimulator
+from .heatmap_generator import HeatmapGenerator
 
 class InteractiveMapView(QWidget):
     """
@@ -46,6 +47,12 @@ class InteractiveMapView(QWidget):
         self.current_floor = None
         self.base_pixmap = None  # Original floor plan image
         self.display_pixmap = None  # Rendered image with APs
+        
+        # Heatmap functionality
+        self.heatmap_generator = HeatmapGenerator()
+        self.heatmap_enabled = False
+        self.current_heatmap_network = None  # None means strongest signal
+        self.heatmap_pixmap = None
         
         # UI state
         self.placement_mode = "ap"  # "ap" or "scan_point"
@@ -114,6 +121,10 @@ class InteractiveMapView(QWidget):
         # Create a copy of the base image to draw on
         self.display_pixmap = self.base_pixmap.copy()
         painter = QPainter(self.display_pixmap)
+        
+        # Draw heatmap overlay if enabled
+        if self.heatmap_enabled:
+            self._draw_heatmap_overlay(painter)
         
         # Draw placed APs
         self._draw_placed_aps(painter)
@@ -184,6 +195,73 @@ class InteractiveMapView(QWidget):
             ap_count = len(scan_point.ap_list)
             painter.setPen(QPen(QColor(0, 0, 0)))
             painter.drawText(x - 10, y + 20, 20, 10, Qt.AlignCenter, str(ap_count))
+    
+    def _draw_heatmap_overlay(self, painter):
+        """Draw heatmap overlay on the map"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            return
+            
+        # Generate or update heatmap
+        self._update_heatmap()
+        
+        if self.heatmap_pixmap and not self.heatmap_pixmap.isNull():
+            # Draw the heatmap overlay
+            painter.setOpacity(0.6)  # Semi-transparent overlay
+            painter.drawPixmap(0, 0, self.heatmap_pixmap)
+            painter.setOpacity(1.0)  # Reset opacity
+    
+    def _update_heatmap(self):
+        """Update the heatmap based on current scan data"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            self.heatmap_pixmap = None
+            return
+            
+        # Set heatmap dimensions to match floor plan
+        if self.base_pixmap:
+            width, height = self.base_pixmap.width(), self.base_pixmap.height()
+            self.heatmap_generator.width = width
+            self.heatmap_generator.height = height
+        
+        # Generate heatmap
+        self.heatmap_pixmap = self.heatmap_generator.generate_heatmap(
+            self.current_floor.scan_points,
+            target_network=self.current_heatmap_network,
+            floor=self.current_floor
+        )
+        
+        if self.debug_mode:
+            networks = self.heatmap_generator.get_connected_networks(self.current_floor.scan_points)
+            print(f"DEBUG: Heatmap updated. Connected networks: {networks}")
+    
+    def set_heatmap_enabled(self, enabled: bool):
+        """Enable or disable heatmap display"""
+        if self.heatmap_enabled != enabled:
+            self.heatmap_enabled = enabled
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            self._render_map()
+            
+            if self.debug_mode:
+                print(f"DEBUG: Heatmap {'enabled' if enabled else 'disabled'}")
+    
+    def set_heatmap_network(self, network_ssid: str = None):
+        """Set the target network for heatmap display"""
+        if self.current_heatmap_network != network_ssid:
+            self.current_heatmap_network = network_ssid
+            if self.heatmap_enabled:
+                self._update_heatmap()
+                self._render_map()
+                
+            if self.debug_mode:
+                network_name = network_ssid if network_ssid else "Strongest Signal"
+                print(f"DEBUG: Heatmap network set to: {network_name}")
+    
+    def get_available_networks(self):
+        """Get list of networks available for heatmap display"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            return []
+            
+        return self.heatmap_generator.get_connected_networks(self.current_floor.scan_points)
     
     def _map_mouse_press(self, event):
         """Handle mouse press events on the map"""
@@ -480,6 +558,10 @@ class InteractiveMapView(QWidget):
         # Add to current floor
         self.current_floor.scan_points.append(scan_point)
         
+        # Update heatmap if enabled (new scan data available)
+        if self.heatmap_enabled:
+            self._update_heatmap()
+        
         # Re-render map
         self._render_map()
         
@@ -517,6 +599,9 @@ class InteractiveMapView(QWidget):
         """Remove all scan points from the current floor"""
         if self.current_floor:
             self.current_floor.scan_points.clear()
+            # Update heatmap if enabled (scan data cleared)
+            if self.heatmap_enabled:
+                self._update_heatmap()
             self._render_map()
             self.status_label.setText("All scan points cleared")
     
@@ -542,6 +627,10 @@ class InteractiveMapView(QWidget):
             
             self.current_floor.scan_points.append(scan_point)
             added_count += 1
+        
+        # Update heatmap if enabled (new scan data available)
+        if self.heatmap_enabled:
+            self._update_heatmap()
         
         # Re-render map
         self._render_map()
@@ -591,6 +680,10 @@ class InteractiveMapView(QWidget):
         )
         
         self.current_floor.scan_points.append(scan_point)
+        
+        # Update heatmap if enabled (new scan data available)
+        if self.heatmap_enabled:
+            self._update_heatmap()
         
         # Re-render map
         self._render_map()
