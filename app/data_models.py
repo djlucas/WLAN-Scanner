@@ -13,6 +13,7 @@
 
 import json
 import re
+from datetime import datetime
 
 class APData:
     """
@@ -30,6 +31,20 @@ class APData:
 
     def to_dict(self):
         return self.__dict__
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create APData instance from dictionary."""
+        return cls(
+            ssid=data['ssid'],
+            bssid=data['bssid'], 
+            channel=data['channel'],
+            signal_strength=data['signal_strength'],
+            security=data['security'],
+            frequency=data['frequency'],
+            quality=data['quality'],
+            band=data['band']
+        )
 
 class ScanPoint:
     """
@@ -48,6 +63,18 @@ class ScanPoint:
             'timestamp': self.timestamp.isoformat(), # Store as ISO format string
             'ap_list': [ap.to_dict() for ap in self.ap_list]
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create ScanPoint instance from dictionary."""
+        timestamp = datetime.fromisoformat(data['timestamp'])
+        ap_list = [APData.from_dict(ap_data) for ap_data in data['ap_list']]
+        return cls(
+            map_x=data['map_x'],
+            map_y=data['map_y'],
+            timestamp=timestamp,
+            ap_list=ap_list
+        )
 
 class PlacedAP:
     """
@@ -76,6 +103,23 @@ class PlacedAP:
             'associated_scan_data': [ap.to_dict() for ap in self.associated_scan_data],
             'timestamp_last_scan': self.timestamp_last_scan.isoformat() if self.timestamp_last_scan else None
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create PlacedAP instance from dictionary."""
+        associated_scan_data = [APData.from_dict(ap_data) for ap_data in data['associated_scan_data']]
+        timestamp_last_scan = datetime.fromisoformat(data['timestamp_last_scan']) if data['timestamp_last_scan'] else None
+        return cls(
+            name=data['name'],
+            manufacturer=data['manufacturer'],
+            model=data['model'],
+            ip_address=data['ip_address'],
+            ethernet_mac=data['ethernet_mac'],
+            map_x=data['map_x'],
+            map_y=data['map_y'],
+            associated_scan_data=associated_scan_data,
+            timestamp_last_scan=timestamp_last_scan
+        )
 
 class ScaleLine:
     """
@@ -109,6 +153,19 @@ class ScaleLine:
             'is_horizontal': self.is_horizontal,
             'pixel_length': self.pixel_length
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create ScaleLine instance from dictionary."""
+        return cls(
+            x1=data['x1'],
+            y1=data['y1'],
+            x2=data['x2'],
+            y2=data['y2'],
+            physical_dimension_value=data['physical_dimension_value'],
+            is_horizontal=data['is_horizontal'],
+            physical_dimension_unit=data.get('physical_dimension_unit', 'm')
+        )
 
     @staticmethod
     def parse_physical_dimension_input(input_string):
@@ -189,6 +246,24 @@ class Floor:
             'placed_aps': [ap.to_dict() for ap in self.placed_aps],
             'scan_points': [sp.to_dict() for sp in self.scan_points]
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create Floor instance from dictionary."""
+        scale_line_horizontal = ScaleLine.from_dict(data['scale_line_horizontal']) if data['scale_line_horizontal'] else None
+        scale_line_vertical = ScaleLine.from_dict(data['scale_line_vertical']) if data['scale_line_vertical'] else None
+        placed_aps = [PlacedAP.from_dict(ap_data) for ap_data in data['placed_aps']]
+        scan_points = [ScanPoint.from_dict(sp_data) for sp_data in data['scan_points']]
+        return cls(
+            floor_number=data['floor_number'],
+            original_image_path=data['original_image_path'],
+            cropped_image_path=data['cropped_image_path'],
+            scaled_image_path=data['scaled_image_path'],
+            scale_line_horizontal=scale_line_horizontal,
+            scale_line_vertical=scale_line_vertical,
+            placed_aps=placed_aps,
+            scan_points=scan_points
+        )
 
 class SiteInfo:
     """
@@ -206,6 +281,20 @@ class SiteInfo:
 
     def to_dict(self):
         return self.__dict__
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create SiteInfo instance from dictionary."""
+        return cls(
+            site_name=data.get('site_name', ''),
+            street=data.get('street', ''),
+            city=data.get('city', ''),
+            state_province=data.get('state_province', ''),
+            postal_code=data.get('postal_code', ''),
+            country=data.get('country', ''),
+            contact=data.get('contact', ''),
+            telephone=data.get('telephone', '')
+        )
 
 class MapProject:
     """
@@ -222,4 +311,15 @@ class MapProject:
             'floors': [floor.to_dict() for floor in self.floors],
             'current_floor_index': self.current_floor_index
         }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create MapProject instance from dictionary."""
+        site_info = SiteInfo.from_dict(data['site_info'])
+        floors = [Floor.from_dict(floor_data) for floor_data in data['floors']]
+        return cls(
+            site_info=site_info,
+            floors=floors,
+            current_floor_index=data.get('current_floor_index', 0)
+        )
 

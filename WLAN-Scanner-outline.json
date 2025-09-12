@@ -48,16 +48,16 @@
           {
             "type": "class_struct",
             "name": "APData",
-            "description": "Define a structure to hold individual Access Point details from the scan:",
+            "description": "Define a structure to hold individual Access Point details from the scan (matches get-wlans script format):",
             "fields": [
               "`ssid` (string)",
               "`bssid` (string)",
               "`channel` (integer)",
-              "`signal_strength` (integer, dBm)",
+              "`signal_strength` (integer, dBm - actual range -20 to -95 dBm)",
               "`security` (string, e.g., \"WPA2\", \"Open\")",
               "`frequency` (integer, MHz)",
-              "`quality` (integer)",
-              "`band` (string, e.g., \"2.4GHz\", \"5GHz\")"
+              "`quality` (integer, 0-100%)",
+              "`band` (string, e.g., \"2.4 GHz\", \"5 GHz\")"
             ]
           },
           {
@@ -94,8 +94,8 @@
               "`original_image_path` (string).",
               "`cropped_image_path` (string, path to the internally saved cropped image).",
               "`scaled_image_path` (string, path to the internally saved 1920x1080 scaled image).",
-              "`scale_line_horizontal` (tuple: `(x1, y1, x2, y2, physical_dimension_text)`).",
-              "`scale_line_vertical` (tuple: `(x1, y1, x2, y2, physical_dimension_text)`).",
+              "`scale_line_horizontal` (ScaleLine object with physical dimensions).",
+              "`scale_line_vertical` (ScaleLine object with physical dimensions).",
               "`placed_aps` (list of `PlacedAP` objects).",
               "`scan_points` (list of `ScanPoint` objects)."
             ]
@@ -106,7 +106,7 @@
             "description": "Stores general site information:",
             "fields": [
               "`site_name` (string, mandatory).",
-              "`address` (string).",
+              "`street`, `city`, `state_province`, `postal_code`, `country` (strings).",
               "`contact` (string).",
               "`telephone` (string)."
             ]
@@ -126,626 +126,262 @@
     ]
   },
   {
-    "section_title": "II. User Interface (UI) Design and Components",
+    "section_title": "II. Interactive Map Interface (IMPLEMENTED)",
+    "status": "COMPLETED",
+    "modules": [
+      {
+        "name": "Interactive Map View",
+        "file": "interactive_map_view.py",
+        "status": "IMPLEMENTED",
+        "components": [
+          {
+            "name": "Right-Click Context Menu System",
+            "description": "Professional context-sensitive menus for all map interactions",
+            "features": [
+              "Right-click empty space: 'Place Access Point Here', 'Run Scan Here (Simulated)', bulk operations",
+              "Right-click existing AP: Smart menu with Edit, Scan/Rescan, Clear data, Remove options",
+              "Context adapts based on AP scan status (scanned vs unscanned)"
+            ]
+          },
+          {
+            "name": "Visual AP Status System",
+            "description": "Color-coded AP markers indicating scan status",
+            "features": [
+              "🔵 Blue APs = Have scan data (surveyed)",
+              "🟠 Orange APs = Need scanning (newly placed or data cleared)",
+              "Visual feedback for scan status at a glance"
+            ]
+          },
+          {
+            "name": "Drag-and-Drop AP Positioning",
+            "description": "Left-click and drag existing APs to reposition them",
+            "features": [
+              "Smooth dragging with real-time coordinate updates",
+              "No accidental placement on left-click empty space"
+            ]
+          },
+          {
+            "name": "Immediate Scan Workflow",
+            "description": "Smart scanning prompts after AP placement",
+            "features": [
+              "Automatic prompt: 'AP placed! Run scan now?'",
+              "Default Yes for streamlined workflow",
+              "Visual status updates (Orange → Blue when scanned)"
+            ]
+          },
+          {
+            "name": "Scan Data Management",
+            "description": "Flexible scan data lifecycle management",
+            "features": [
+              "Individual AP scan/rescan/clear options",
+              "Bulk operations: 'Scan at All AP Locations', 'Clear All AP Scan Data'",
+              "Preserve AP layouts while refreshing survey data"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Simulated Scanning System", 
+        "file": "scan_simulator.py",
+        "status": "IMPLEMENTED",
+        "description": "Realistic WiFi data generation matching actual get-wlans script format",
+        "features": [
+          "JSON format matching get-wlans.ps1/sh output exactly",
+          "Realistic signal ranges (-23 to -92 dBm from actual scan data)",
+          "Proper channel/frequency mapping for 2.4GHz and 5GHz bands",
+          "Quality calculations based on signal strength",
+          "Real-world SSID patterns and network types"
+        ]
+      }
+    ]
+  },
+  {
+    "section_title": "III. User Interface Components",
     "modules": [
       {
         "name": "Main Window",
         "file": "main_window.py",
+        "status": "UPDATED",
         "components": [
           {
-            "name": "Central Widget",
-            "description": "A custom widget that dynamically displays the current floor map and its associated APs/Scan Points. This will likely be a `QGraphicsView` with a `QGraphicsScene` for interactive map display."
+            "name": "Interactive Map Display",
+            "description": "Replaced simple image display with full interactive map view",
+            "type": "InteractiveMapView widget"
+          },
+          {
+            "name": "Enhanced Menu System",
+            "description": "Updated scan menu with new interactive options",
+            "features": [
+              "Informational item: 'Place APs and Scan Points (Right-click on map)'",
+              "Bulk scan operations in menu bar",
+              "Real-time status updates for AP placement and scanning"
+            ]
           },
           {
             "name": "Floor Selector",
-            "description": "A `QComboBox` or similar to switch between loaded floors."
-          },
-          {
-            "name": "AP List/Table View",
-            "type": "QTableWidget",
-            "description": "Displays a list of APs from the *most recent* scan (either from a placed AP or a general scan point).",
-            "columns": [
-              "SSID",
-              "BSSID",
-              "Channel",
-              "Signal",
-              "Security",
-              "Quality",
-              "Frequency",
-              "Band"
-            ],
-            "features": [
-              "Allows sorting and filtering."
-            ]
-          },
-          {
-            "name": "Controls Panel",
-            "type": "QVBoxLayout of QPushButtons",
-            "buttons": [
-              "Place AP: Toggles a mode for placing `PlacedAP` markers.",
-              "Place Scan Point: Toggles a mode for placing general `ScanPoint` markers.",
-              "Run Scan (Current Location): Initiates a scan at the current mouse position (if not placing an AP/Scan Point).",
-              "Clear Current Floor Data: Clears all APs and Scan Points on the active floor.",
-              "Clear All Project Data: Clears all `Floor` data and `SiteInfo`."
-            ]
-          },
-          {
-            "name": "Status Bar",
-            "type": "QStatusBar",
-            "description": "Displays application status (e.g., \"Ready\", \"Scanning...\", \"Error: Script not found\", \"Current Floor: 1\").",
-            "features": [
-              "Provides feedback on user actions and coordinates."
-            ]
+            "description": "QComboBox for multi-floor navigation (existing)"
           }
         ]
       },
       {
-        "name": "Menu Bar",
-        "type": "QMenuBar",
-        "menus": [
-          {
-            "name": "File",
-            "items": [
-              "New Project (triggers `SiteInfoDialog` and `FloorImportDialog` sequence).",
-              "Open Project... (loads a saved project).",
-              "Save Project / Save Project As....",
-              "Exit."
-            ]
-          },
-          {
-            "name": "Edit",
-            "items": [
-              "Preferences... (opens `PreferencesDialog`).",
-              "Edit Site Info... (opens `SiteInfoDialog` for current project)."
-            ]
-          },
-          {
-            "name": "Floor",
-            "items": [
-              "Add New Floor... (triggers `FloorImportDialog` sequence).",
-              "Edit Current Floor Map (re-opens `FloorImportDialog` for current floor).",
-              "Set Scale Lines (Current Floor) (opens `ScaleLineDialog`)."
-            ]
-          },
-          {
-            "name": "Scan",
-            "items": [
-              "Run Scan (Current Location).",
-              "Configure Scan Tools... (opens `PreferencesDialog` to scan tool section)."
-            ]
-          },
-          {
-            "name": "Report",
-            "items": [
-              "Generate PDF Report... (opens `ReportGenerationDialog`)."
-            ]
-          },
-          {
-            "name": "View",
-            "items": [
-              "Toggle AP List Panel.",
-              "Zoom In / Zoom Out (for map)."
-            ]
-          },
-          {
-            "name": "Help",
-            "items": [
-              "About."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "Dialogs",
-        "description": "Each potentially its own `.py` file:",
+        "name": "Existing Dialogs",
+        "status": "WORKING",
         "dialog_list": [
           {
             "name": "Preferences Dialog",
             "file": "preferences_dialog.py",
-            "fields": [
-              "Input fields (`QLineEdit`) for Poppler path.",
-              "\"Browse...\" buttons (`QPushButton`) for directory selection.",
-              "Combobox for Language selection.",
-              "Radio buttons/checkbox for Imperial/Metric measurement system.",
-              "\"Save\" and \"Cancel\" buttons."
-            ]
+            "status": "IMPLEMENTED"
           },
           {
-            "name": "Site Information Dialog",
+            "name": "Site Information Dialog", 
             "file": "site_info_dialog.py",
-            "fields": [
-              "Input fields for Site Name (mandatory), Address, Contact, Telephone.",
-              "\"OK\" and \"Cancel\" buttons."
-            ]
+            "status": "IMPLEMENTED"
           },
           {
             "name": "Floor Import Dialog",
-            "file": "floor_import_dialog.py",
-            "fields": [
-              "File dialog to select `jpg`, `png`, `pdf` image.",
-              "Input field for Floor Number.",
-              "**PDF Handling:** If PDF, use `poppler` to convert selected page to image.",
-              "**Cropping UI:**",
-              {
-                "type": "list",
-                "items": [
-                  "Displays the image.",
-                  "Allows user to drag a selection box.",
-                  "Shading outside the selected area.",
-                  "\"Crop\" button."
-                ]
-              },
-              "**Resizing/Aspect Ratio UI:**",
-              {
-                "type": "list",
-                "items": [
-                  "After cropping, shows the cropped image.",
-                  "Automatically resizes to 1920x1080, adding black bars if aspect ratio is maintained.",
-                  "Displays final dimensions.",
-                  "\"Confirm\" button."
-                ]
-              },
-              "\"Next\" (to `ScaleLineDialog`) and \"Cancel\" buttons."
-            ]
+            "file": "floor_import_dialog.py", 
+            "status": "IMPLEMENTED"
           },
           {
             "name": "Scale Line Dialog",
             "file": "scale_line_dialog.py",
-            "fields": [
-              "Displays the processed floor image.",
-              "Allows user to draw two lines (horizontal and vertical).",
-              "**Horizontal Line Auto-placement:** Automatically placed 75px above the topmost detected horizontal line in the drawing, spanning between the leftmost and rightmost detected vertical lines in the drawing.",
-              "**Vertical Line Auto-placement:** Automatically placed 75px to the left of the leftmost detected vertical line in the drawing, spanning vertically between the topmost and bottommost detected horizontal lines in the drawing.",
-              "Text input fields for physical dimensions (e.g., \"40' 6\"\", \"30.9m\") for each line. These inputs are independent, allowing the application to detect if the drawing is out of scale.",
-              "\"Smart snap\" functionality (optional, for aligning lines to edges/grid).",
-              "\"Confirm\" and \"Cancel\" buttons."
-            ]
-          },
-          {
-            "name": "AP Placement Dialog",
-            "file": "ap_details_dialog.py",
-            "fields": [
-              "Input fields for AP Name, Manufacturer, Model, IP Address, Ethernet MAC.",
-              "\"Run Scan Now\" button (triggers immediate scan under the current location).",
-              "\"Save AP\" and \"Cancel\" buttons."
-            ]
-          },
-          {
-            "name": "AP/Scan Point Details Dialog",
-            "file": "ap_details_dialog.py, scan_point_details_dialog.py",
-            "fields": [
-              "When clicking on an existing AP/Scan Point marker.",
-              "Displays stored data.",
-              "Allows editing attributes.",
-              "\"Run New Scan\" button (for `PlacedAP` and `ScanPoint` to update their `ap_list`).",
-              "\"Update\" and \"Delete\" buttons."
-            ]
-          },
-          {
-            "name": "Report Generation Dialog",
-            "file": "report_dialog.py",
-            "fields": [
-              "Options for report content (e.g., \"Include Raw Data Tables\", \"Include Floor Maps\").",
-              "Placeholder for future options: \"Include Heatmaps\", \"Include Interference Maps\".",
-              "\"Generate Report\" button.",
-              "\"Save As...\" file dialog for PDF output."
-            ]
-          },
-          {
-            "name": "Message Boxes",
-            "type": "QMessageBox",
-            "description": "For warnings, errors, and confirmations."
+            "status": "IMPLEMENTED"
           }
         ]
       }
     ]
   },
   {
-    "section_title": "III. Core Functionality and Logic",
+    "section_title": "IV. Core Functionality Status",
     "modules": [
       {
         "name": "Project Management",
-        "file": "project_manager.py",
+        "file": "main_window.py (partial)",
+        "status": "PARTIAL - Save/Load needed",
         "functions": [
           {
             "name": "New Project",
-            "steps": [
-              "Instantiate new `MapProject`.",
-              "Open `SiteInfoDialog`.",
-              "If `SiteInfo` is valid, open `FloorImportDialog` for the first floor."
-            ]
+            "status": "IMPLEMENTED",
+            "description": "Complete workflow from site info to floor import with scale lines"
           },
           {
-            "name": "Save/Load Project",
-            "steps": [
-              "Serialize the entire `MapProject` object (including `SiteInfo`, `Floor` objects with image paths, `PlacedAP` and `ScanPoint` data) to a JSON file.",
-              "Deserialize the JSON file back into a `MapProject` object.",
-              "Handle image file copying/linking to a project-specific directory for portability."
-            ]
+            "name": "Save/Load Project", 
+            "status": "TODO - NEXT PRIORITY",
+            "description": "Need JSON serialization/deserialization of MapProject with image handling"
           }
         ]
       },
       {
         "name": "Floor Management",
-        "file": "floor_manager.py",
-        "functions": [
-          {
-            "name": "Load Map Image",
-            "steps": [
-              "User selects an image file (JPG, PNG, PDF).",
-              "If PDF, use `poppler` (`QProcess` call) to convert a specified page to a temporary image file.",
-              "Load the image into a `QPixmap`.",
-              "Pass the `QPixmap` to the `FloorImportDialog` for cropping."
-            ]
-          },
-          {
-            "name": "Image Cropping",
-            "steps": [
-              "Implement `mousePressEvent`, `mouseMoveEvent`, `mouseReleaseEvent` on the image display widget within `FloorImportDialog` for selection box drawing.",
-              "Calculate crop rectangle.",
-              "Crop the `QPixmap` and save the cropped image internally."
-            ]
-          },
-          {
-            "name": "Image Resizing",
-            "steps": [
-              "Resize the cropped `QPixmap` to 1920x1080 while maintaining aspect ratio (add black bars if necessary).",
-              "Save this final scaled image internally (e.g., in a project-specific folder).",
-              "All internal coordinates (AP, Scan Point) will be based on this 1920x1080 scaled image."
-            ]
-          },
-          {
-            "name": "Scale Line Definition",
-            "steps": [
-              "Implement drawing lines on the map within `ScaleLineDialog`.",
-              "Capture start/end coordinates and associated physical dimension text.",
-              "Store these in the `Floor` object."
-            ]
-          },
-          {
-            "name": "Add/Remove Floors",
-            "steps": [
-              "Manage the list of `Floor` objects within the `MapProject`."
-            ]
-          }
-        ]
+        "status": "IMPLEMENTED",
+        "description": "Complete PDF import, cropping, scaling, and scale line definition"
       },
       {
         "name": "AP Scanning Process",
-        "file": "scan_manager.py",
-        "functions": [
-          {
-            "name": "OS Detection",
-            "steps": [
-              "Determine the current operating system (`sys.platform`)."
-            ]
-          },
-          {
-            "name": "Script Execution",
-            "type": "QProcess",
-            "steps": [
-              "Based on OS and configured paths, construct the command to execute the appropriate script (PowerShell or Bash).",
-              "Create a `QProcess` instance.",
-              "Connect `QProcess` signals: `readyReadStandardOutput()`, `finished()`, `errorOccurred()`.",
-              "Start the process (`process.start()`)."
-            ]
-          },
-          {
-            "name": "Output Capture and Parsing",
-            "steps": [
-              "As the script outputs JSON data to stdout, read it incrementally.",
-              "Once the process `finished()`, ensure all output is captured.",
-              "Parse the JSON string into a Python dictionary/list of dictionaries.",
-              "**Error Handling:** Catch `JSONDecodeError` for invalid JSON, `FileNotFoundError` if script path is incorrect, etc."
-            ]
-          },
-          {
-            "name": "Data Conversion",
-            "steps": [
-              "Iterate through the parsed JSON data and convert each AP entry into an `APData` object."
-            ]
-          },
-          {
-            "name": "Return Scan Data",
-            "steps": [
-              "Provide the list of `APData` objects to the calling function (e.g., `APPlacementDialog` or `MainWindow` for general scan points)."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "AP Placement and Management",
-        "file": "ap_manager.py",
-        "functions": [
-          {
-            "name": "\"Place AP\" Mode",
-            "steps": [
-              "When active, mouse clicks on the map trigger AP placement."
-            ]
-          },
-          {
-            "name": "Mouse Click Event",
-            "description": "(`mousePressEvent` on map widget):",
-            "steps": [
-              "Get mouse coordinates.",
-              "Open `APPlacementDialog`.",
-              "If user confirms, create `PlacedAP` object with entered data and coordinates.",
-              "If \"Run Scan Now\" is clicked in `APPlacementDialog`, trigger `ScanManager` and associate the returned `APData` list.",
-              "Add `PlacedAP` to the `current_floor.placed_aps` list.",
-              "Draw a marker on the map."
-            ]
-          },
-          {
-            "name": "Dragging APs",
-            "steps": [
-              "Implement `mousePressEvent`, `mouseMoveEvent`, `mouseReleaseEvent` for dragging existing `PlacedAP` markers. Update `map_x`, `map_y`."
-            ]
-          },
-          {
-            "name": "Editing AP Attributes",
-            "steps": [
-              "Clicking on a `PlacedAP` marker opens `APDetailsDialog` to edit its properties or re-run a scan."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "Scan Point Placement and Management",
-        "file": "scan_point_manager.py",
-        "functions": [
-          {
-            "name": "\"Place Scan Point\" Mode",
-            "steps": [
-              "When active, mouse clicks on the map trigger scan point placement."
-            ]
-          },
-          {
-            "name": "Mouse Click Event",
-            "description": "(`mousePressEvent` on map widget):",
-            "steps": [
-              "Get mouse coordinates.",
-              "Trigger `ScanManager` to perform a scan.",
-              "Create `ScanPoint` object with coordinates and the returned `APData` list.",
-              "Add `ScanPoint` to the `current_floor.scan_points` list.",
-              "Draw a marker on the map."
-            ]
-          },
-          {
-            "name": "Editing Scan Point Attributes",
-            "steps": [
-              "Clicking on a `ScanPoint` marker opens `ScanPointDetailsDialog` to view/re-run its scan."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "Data Visualization and Interaction",
-        "file": "map_view.py",
-        "functions": [
-          {
-            "name": "Display Map",
-            "steps": [
-              "Load the `current_floor.scaled_image_path` into the `QGraphicsScene`."
-            ]
-          },
-          {
-            "name": "Display Markers",
-            "steps": [
-              "For each `PlacedAP` and `ScanPoint` on the current floor, draw visual markers (e.g., custom icons or circles) on the `QGraphicsScene` at their `map_x`, `map_y` coordinates."
-            ]
-          },
-          {
-            "name": "Marker Interaction (Hover/Click)",
-            "steps": [
-              "Tooltips for summary info.",
-              "Clicking opens respective details dialogs."
-            ]
-          },
-          {
-            "name": "Panning and Zooming",
-            "steps": [
-              "Implement `QGraphicsView`'s built-in panning and zooming or custom `mouseMoveEvent` and `wheelEvent` handlers."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "Project Export",
-        "file": "project_exporter.py",
-        "functions": [
-          {
-            "name": "\"Save Project\" / \"Save Project As...\" Trigger",
-            "steps": [
-              "Initiates the export process."
-            ]
-          },
-          {
-            "name": "Create Temporary Directory",
-            "steps": [
-              "Create a temporary directory to assemble project files."
-            ]
-          },
-          {
-            "name": "Export Floor Maps",
-            "steps": [
-              "For each `Floor` in `MapProject.floors`:",
-              {
-                "type": "list",
-                "items": [
-                  "Save the `scaled_image_path` (the 1920x1080 image) as a PNG file within the temporary directory."
-                ]
-              }
-            ]
-          },
-          {
-            "name": "Export Project Data (JSON)",
-            "steps": [
-              "Serialize the entire `MapProject` object (excluding image paths that are now exported) into a single JSON file (e.g., `project_data.json`). This JSON will contain `SiteInfo`, `Floor` data (including `floor_number`, `scale_lines`, `placed_aps`, `scan_points`).",
-              "Save this JSON file within the temporary directory."
-            ]
-          },
-          {
-            "name": "Create Manifest File (JSON)",
-            "steps": [
-              "Create a `manifest.json` file in the temporary directory.",
-              "This manifest will list the exported floor map filenames, the main project data JSON filename, and potentially version information or other metadata."
-            ]
-          },
-          {
-            "name": "Zip Archiving",
-            "steps": [
-              "Compress the contents of the temporary directory into a single zip archive.",
-              "Set the file extension of this zip archive to `.wls` (e.g., `MyProject.wls`)."
-            ]
-          },
-          {
-            "name": "Cleanup",
-            "steps": [
-              "Remove the temporary directory and its contents."
-            ]
-          },
-          {
-            "name": "Error Handling",
-            "steps": [
-              "Handle potential errors during file operations (e.g., disk full, permission issues)."
-            ]
-          }
-        ]
-      },
-      {
-        "name": "Report Generation",
-        "file": "report_generator.py",
-        "functions": [
-          {
-            "name": "\"Generate PDF Report...\" Trigger",
-            "steps": [
-              "Initiates the report generation process."
-            ]
-          },
-          {
-            "name": "Collect Data",
-            "steps": [
-              "Gather all relevant `SiteInfo`, `Floor` data, `PlacedAP` details, and `ScanPoint` data from the `MapProject` object."
-            ]
-          },
-          {
-            "name": "PDF Document Creation",
-            "steps": [
-              "Use a Python library like `reportlab` or `fpdf2` to create a PDF document."
-            ]
-          },
-          {
-            "name": "Report Structure (Initial)",
-            "steps": [
-              "Title page with Site Information.",
-              "Table of Contents (listing floors).",
-              "For each floor:",
-              {
-                "type": "list",
-                "items": [
-                  "Floor number/name.",
-                  "Embedded scaled floor map image (PNG).",
-                  "Table of `PlacedAP` details (Name, Manufacturer, Model, IP, MAC).",
-                  "Table of `ScanPoint` details (Coordinates, Timestamp).",
-                  "Detailed raw scan data tables for each `PlacedAP` and `ScanPoint` (SSID, BSSID, Signal, etc.)."
-                ]
-              }
-            ]
-          },
-          {
-            "name": "Future Expansion",
-            "steps": [
-              "Integrate heatmap generation (requires signal propagation algorithms and interpolation).",
-              "Integrate interference map generation (requires analysis of overlapping channels and signal strengths)."
-            ]
-          },
-          {
-            "name": "Save PDF",
-            "steps": [
-              "Allow the user to choose the output filename and location for the PDF report."
-            ]
-          },
-          {
-            "name": "Error Handling",
-            "steps": [
-              "Handle errors during PDF generation (e.g., invalid data, library issues)."
-            ]
-          }
+        "status": "SIMULATED - Live integration pending",
+        "description": "Simulated scanning works perfectly. Need to integrate actual get-wlans scripts.",
+        "next_steps": [
+          "Add connected network detection to scan scripts",
+          "Integrate QProcess execution of actual scripts",
+          "Fall back to simulation when scripts unavailable"
         ]
       }
     ]
   },
   {
-    "section_title": "IV. Event Handling",
-    "modules": [
+    "section_title": "V. Next Development Phase - TOMORROW'S TASKS",
+    "priorities": [
       {
-        "name": "UI Element Events",
-        "steps": [
-          "`QPushButton.clicked` signals.",
-          "`QAction.triggered` signals (for menu items).",
-          "`QLineEdit.textChanged` (for configuration/input).",
-          "`QComboBox.currentIndexChanged` (for floor selection).",
-          "`QTableWidget.itemSelectionChanged` (for selecting APs in the list)."
+        "priority": 1,
+        "task": "Save/Load Functionality",
+        "description": "Project persistence to enable data visualization development",
+        "components": [
+          "JSON serialization of MapProject objects", 
+          "Image file management (copy to project directory)",
+          "ZIP-based .wls project file format",
+          "File dialogs for save/open operations"
         ]
       },
       {
-        "name": "Map Interaction Events",
-        "description": "(on `QGraphicsView` or custom map widget):",
-        "steps": [
-          "`mousePressEvent`, `mouseMoveEvent`, `mouseReleaseEvent` for placing markers, dragging APs, panning.",
-          "`wheelEvent` for zooming."
+        "priority": 2,
+        "task": "Data Visualization",
+        "description": "Heatmap generation and AP data tables",
+        "components": [
+          "Signal strength heatmaps with realistic color gradient",
+          "Connected network focus (primary heatmap)",
+          "AP data tables with sorting/filtering",
+          "Coverage analysis and recommendations"
         ]
       },
       {
-        "name": "`QProcess` Signals",
-        "description": "(for scan scripts and poppler):",
-        "steps": [
-          "`readyReadStandardOutput()`: To read partial or complete JSON output.",
-          "`finished(int exitCode, QProcess::ExitStatus exitStatus)`: To know when the script has completed. Check `exitCode` for success/failure.",
-          "`errorOccurred(QProcess::ProcessError error)`: To catch errors like \"command not found\" or permission issues."
+        "priority": 3,
+        "task": "Live WiFi Integration", 
+        "description": "Connect to actual get-wlans scripts",
+        "components": [
+          "QProcess execution of platform-specific scripts",
+          "Connected network detection enhancement",
+          "Error handling for script failures",
+          "Fallback to simulation mode"
+        ]
+      },
+      {
+        "priority": 4,
+        "task": "Report Generation",
+        "description": "Qt → HTML → PDF pipeline",
+        "components": [
+          "HTML template system with Jinja2",
+          "Professional report layout with print CSS",
+          "Floor plan and heatmap embedding",
+          "Executive summary with coverage analysis"
         ]
       }
     ]
   },
   {
-    "section_title": "V. Error Handling and User Feedback",
-    "modules": [
+    "section_title": "VI. Technical Decisions Made",
+    "decisions": [
       {
-        "name": "Robust Script Execution",
-        "steps": [
-          "Handle cases where scan scripts or `poppler` binaries are not found or not executable.",
-          "Provide clear error messages in the status bar or a `QMessageBox`."
-        ]
+        "topic": "Heatmap Color Gradient",
+        "decision": "Green (-20 to -45 dBm) → Yellow (-45 to -60) → Orange (-60 to -75) → Red (-75 to -90) → Blue (-90+ dBm)",
+        "rationale": "Based on actual scan data showing signals as strong as -23 dBm, not the typical -30 dBm Windows limitation"
       },
       {
-        "name": "JSON Parsing Errors",
-        "steps": [
-          "Gracefully handle malformed JSON output from the scan scripts.",
-          "Inform the user if the scan data is invalid."
-        ]
+        "topic": "Heatmap Focus",
+        "decision": "Primary heatmap shows connected network signal strength",
+        "rationale": "Most site surveys focus on coverage of the surveyed network, with secondary option to view other networks"
       },
       {
-        "name": "File I/O Errors",
-        "steps": [
-          "Handle errors during loading/saving configuration, map images, or project files."
-        ]
+        "topic": "Report Generation Pipeline",
+        "decision": "Qt → HTML → PDF via Poppler (not browser-based)",
+        "rationale": "Leverages existing Qt/Poppler ecosystem, allows precise control over technical documentation layout"
       },
       {
-        "name": "User Input Validation",
-        "steps": [
-          "Validate mandatory fields (e.g., Site Name).",
-          "Validate numerical inputs, paths, etc."
-        ]
+        "topic": "Interaction Model",
+        "decision": "Right-click only for placement, left-click for dragging",
+        "rationale": "Eliminates accidental AP placement, more professional and deliberate workflow"
       },
       {
-        "name": "User Feedback",
-        "steps": [
-          "Update the status bar to indicate ongoing operations (e.g., \"Scanning...\", \"Loading map...\", \"Cropping image...\", \"Exporting Project...\", \"Generating Report...\").",
-          "Use `QMessageBox` for critical errors or confirmations.",
-          "Provide visual cues (e.g., changing cursor, highlighting active mode, progress bars for lengthy operations).",
-          "Implement a custom message box instead of `QMessageBox.warning` or `QMessageBox.critical` for better UI consistency."
-        ]
+        "topic": "Scan Data Management",
+        "decision": "Separate scan data lifecycle from AP placement",
+        "rationale": "Allows site refresh surveys without losing carefully positioned AP layouts"
       }
+    ]
+  },
+  {
+    "section_title": "VII. Current Application State",
+    "status": "Interactive Survey Phase (~70% Complete)",
+    "capabilities": [
+      "✅ Complete project creation workflow",
+      "✅ PDF floor plan import with cropping and scaling", 
+      "✅ Interactive AP placement with right-click context menus",
+      "✅ Visual status indicators (blue/orange APs)",
+      "✅ Drag-and-drop AP repositioning",
+      "✅ Simulated WiFi scanning with realistic data",
+      "✅ Flexible scan data management",
+      "✅ Smart workflow with immediate scan prompts",
+      "🔄 Ready for save/load implementation",
+      "🔄 Ready for heatmap visualization development",
+      "🔄 Ready for live WiFi script integration"
     ]
   }
 ]

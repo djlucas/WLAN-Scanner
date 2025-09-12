@@ -16,7 +16,7 @@ import os
 import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QAction, QMessageBox,
-    QVBoxLayout, QWidget, QLabel, QDialog, QComboBox
+    QVBoxLayout, QWidget, QLabel, QDialog, QComboBox, QFileDialog
 )
 from PyQt5.QtCore import Qt, QTemporaryDir
 from PyQt5.QtGui import QPixmap
@@ -28,6 +28,7 @@ from .floor_import_dialog import FloorImportDialog
 from .scale_line_dialog import ScaleLineDialog
 from .interactive_map_view import InteractiveMapView
 from .data_models import MapProject, SiteInfo, Floor
+from .project_manager import ProjectManager
 
 
 class MainWindow(QMainWindow):
@@ -55,6 +56,8 @@ class MainWindow(QMainWindow):
 
         self.current_project = None # MapProject object
         self.project_temp_dir = None # Persistent QTemporaryDir for the project
+        self.current_project_file_path = None # Path to the currently opened/saved .wls file
+        self.project_modified = False # Track if project has unsaved changes
 
         self.setWindowTitle(self.i18n.get_string("app_title_placeholder"))
         self.setMinimumSize(1024, 768)
@@ -234,6 +237,8 @@ class MainWindow(QMainWindow):
             # Site info collected, proceed to add first floor
             self.current_project = MapProject(site_info=new_site_info)
             self.project_temp_dir = QTemporaryDir()
+            self.project_modified = True  # New project needs to be saved
+            self._update_window_title()
             self.statusBar().showMessage(self.i18n.get_string("new_project_created_status").format(site_name=self.current_project.site_info.site_name))
             if self.debug_mode:
                 print(f"DEBUG: New project created with site info: {self.current_project.site_info.to_dict()}")
@@ -246,33 +251,146 @@ class MainWindow(QMainWindow):
 
     def _open_project(self):
         """
-        Opens an existing project. (Placeholder for future implementation)
+        Opens an existing project from a .wls file.
         """
-        QMessageBox.information(self, self.i18n.get_string("info_title"),
-                                self.i18n.get_string("save_not_implemented_message"))
-        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        # Check if current project needs to be saved
+        if not self._check_save_current_project():
+            return
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Open WLAN Scanner Project",
+            "",
+            "WLAN Scanner Projects (*.wls);;All Files (*)"
+        )
+        
+        if not file_path:
+            if self.debug_mode:
+                print("DEBUG: Open project cancelled by user.")
+            return
+        
         if self.debug_mode:
-            print("DEBUG: Open project functionality called (not implemented).")
+            print(f"DEBUG: Attempting to open project: {file_path}")
+        
+        # Load the project
+        project, extract_dir = ProjectManager.load_project(file_path)
+        
+        if project is None:
+            QMessageBox.critical(self, "Error", f"Failed to load project from '{file_path}'")
+            if self.debug_mode:
+                print(f"DEBUG: Failed to load project from {file_path}")
+            return
+        
+        # Clean up old project temp directory if it exists
+        if self.project_temp_dir and self.project_temp_dir.isValid():
+            del self.project_temp_dir
+        
+        # Set up the new project
+        self.current_project = project
+        self.project_temp_dir = QTemporaryDir()
+        if self.project_temp_dir.isValid():
+            # Copy extracted files to our managed temp directory
+            import shutil
+            shutil.copytree(extract_dir, self.project_temp_dir.path(), dirs_exist_ok=True)
+        
+        self.current_project_file_path = file_path
+        self.project_modified = False
+        
+        # Update UI
+        self._update_floor_selector()
+        self._display_current_floor_map()
+        self._update_window_title()
+        
+        self.statusBar().showMessage(f"Project '{self.current_project.site_info.site_name}' loaded successfully.")
+        if self.debug_mode:
+            print(f"DEBUG: Project loaded successfully from {file_path}")
+            print(f"DEBUG: Site: {self.current_project.site_info.site_name}, Floors: {len(self.current_project.floors)}")
 
     def _save_project(self):
         """
-        Saves the current project. (Placeholder for future implementation)
+        Saves the current project to its existing file, or prompts for location if new.
         """
-        QMessageBox.information(self, self.i18n.get_string("info_title"),
-                                self.i18n.get_string("save_not_implemented_message"))
-        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        if self.current_project is None:
+            QMessageBox.warning(self, "No Project", "No project is currently loaded to save.")
+            if self.debug_mode:
+                print("DEBUG: Cannot save - no project loaded.")
+            return
+        
+        # If no file path exists, use Save As
+        if self.current_project_file_path is None:
+            self._save_project_as()
+            return
+        
         if self.debug_mode:
-            print("DEBUG: Save project functionality called (not implemented).")
+            print(f"DEBUG: Saving project to {self.current_project_file_path}")
+        
+        # Save to existing file
+        success = ProjectManager.save_project(
+            self.current_project, 
+            self.current_project_file_path,
+            self.project_temp_dir.path() if self.project_temp_dir and self.project_temp_dir.isValid() else None
+        )
+        
+        if success:
+            self.project_modified = False
+            self._update_window_title()
+            self.statusBar().showMessage(f"Project '{self.current_project.site_info.site_name}' saved successfully.")
+            if self.debug_mode:
+                print(f"DEBUG: Project saved successfully to {self.current_project_file_path}")
+        else:
+            QMessageBox.critical(self, "Save Error", f"Failed to save project to '{self.current_project_file_path}'")
+            if self.debug_mode:
+                print(f"DEBUG: Failed to save project to {self.current_project_file_path}")
 
     def _save_project_as(self):
         """
-        Saves the current project to a new location. (Placeholder for future implementation)
+        Saves the current project to a new location.
         """
-        QMessageBox.information(self, self.i18n.get_string("info_title"),
-                                self.i18n.get_string("save_not_implemented_message"))
-        self.statusBar().showMessage(self.i18n.get_string("ready_status"))
+        if self.current_project is None:
+            QMessageBox.warning(self, "No Project", "No project is currently loaded to save.")
+            if self.debug_mode:
+                print("DEBUG: Cannot save as - no project loaded.")
+            return
+        
+        # Suggest default filename based on site name
+        default_filename = self.current_project.site_info.site_name.replace(' ', '_')
+        if not default_filename:
+            default_filename = "WLAN_Survey"
+        default_filename += ".wls"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save WLAN Scanner Project",
+            default_filename,
+            "WLAN Scanner Projects (*.wls);;All Files (*)"
+        )
+        
+        if not file_path:
+            if self.debug_mode:
+                print("DEBUG: Save As cancelled by user.")
+            return
+        
         if self.debug_mode:
-            print("DEBUG: Save project as functionality called (not implemented).")
+            print(f"DEBUG: Saving project as {file_path}")
+        
+        # Save to new file
+        success = ProjectManager.save_project(
+            self.current_project,
+            file_path,
+            self.project_temp_dir.path() if self.project_temp_dir and self.project_temp_dir.isValid() else None
+        )
+        
+        if success:
+            self.current_project_file_path = file_path
+            self.project_modified = False
+            self._update_window_title()
+            self.statusBar().showMessage(f"Project '{self.current_project.site_info.site_name}' saved to '{file_path}'.")
+            if self.debug_mode:
+                print(f"DEBUG: Project saved as {file_path}")
+        else:
+            QMessageBox.critical(self, "Save Error", f"Failed to save project to '{file_path}'")
+            if self.debug_mode:
+                print(f"DEBUG: Failed to save project as {file_path}")
 
     def _edit_site_info(self):
         """
@@ -287,6 +405,7 @@ class MainWindow(QMainWindow):
 
         dialog = SiteInformationDialog(self.current_project.site_info, self.i18n, parent=self)
         if dialog.exec_() == QDialog.Accepted:
+            self._mark_project_modified()
             self.statusBar().showMessage(self.i18n.get_string("site_info_updated_status"))
             if self.debug_mode:
                 print(f"DEBUG: Site information updated: {self.current_project.site_info.to_dict()}")
@@ -325,6 +444,7 @@ class MainWindow(QMainWindow):
                 )
                 self.current_project.floors.append(new_floor)
                 self.current_project.current_floor_index = len(self.current_project.floors) - 1
+                self._mark_project_modified()
                 self._update_floor_selector()
                 self._display_current_floor_map()
                 self.statusBar().showMessage(self.i18n.get_string("floor_added_status").format(floor_number=new_floor.floor_number))
@@ -397,6 +517,7 @@ class MainWindow(QMainWindow):
                 current_floor.original_image_path = floor_data['original_image_path']
                 current_floor.cropped_image_path = floor_data['cropped_image_path']
                 current_floor.scaled_image_path = floor_data['scaled_image_path']
+                self._mark_project_modified()
                 self._display_current_floor_map()
                 self.statusBar().showMessage(self.i18n.get_string("floor_added_status").format(floor_number=current_floor.floor_number)) # Re-using status message
                 if self.debug_mode:
@@ -442,6 +563,7 @@ class MainWindow(QMainWindow):
             h_line, v_line = scale_line_dialog.get_scale_lines()
             current_floor.scale_line_horizontal = h_line
             current_floor.scale_line_vertical = v_line
+            self._mark_project_modified()
             self.statusBar().showMessage(self.i18n.get_string("scale_lines_set_status").format(floor_number=current_floor.floor_number))
             if self.debug_mode:
                 print(f"DEBUG: Scale lines set for Floor {current_floor.floor_number}. H: {h_line.to_dict() if h_line else 'None'}, V: {v_line.to_dict() if v_line else 'None'}")
@@ -494,6 +616,15 @@ class MainWindow(QMainWindow):
         Handles window resize events.
         """
         super().resizeEvent(event)
+    
+    def closeEvent(self, event):
+        """
+        Handles application close event with save check.
+        """
+        if self._check_save_current_project():
+            event.accept()
+        else:
+            event.ignore()
 
     # Placeholder methods for other menu actions
     def _run_scan(self):
@@ -541,6 +672,9 @@ class MainWindow(QMainWindow):
         if self.debug_mode:
             print(f"DEBUG: AP '{placed_ap.name}' placed at ({placed_ap.map_x}, {placed_ap.map_y})")
         
+        # Mark project as modified
+        self._mark_project_modified()
+        
         # Update status
         self.statusBar().showMessage(f"Access Point '{placed_ap.name}' placed successfully")
 
@@ -554,9 +688,56 @@ class MainWindow(QMainWindow):
         if self.debug_mode:
             print(f"DEBUG: Scan point added at ({scan_point.map_x}, {scan_point.map_y}) with {len(scan_point.ap_list)} APs")
         
+        # Mark project as modified
+        self._mark_project_modified()
+        
         # Update status  
         ap_count = len(scan_point.ap_list)
         self.statusBar().showMessage(f"Scan point added - {ap_count} access points detected")
+    
+    def _check_save_current_project(self):
+        """
+        Check if the current project needs to be saved before proceeding.
+        
+        Returns:
+            bool: True to proceed, False to cancel the operation
+        """
+        if self.current_project is None or not self.project_modified:
+            return True
+            
+        reply = QMessageBox.question(
+            self,
+            "Save Changes?",
+            f"The project '{self.current_project.site_info.site_name}' has unsaved changes.\n"
+            "Do you want to save them before proceeding?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save
+        )
+        
+        if reply == QMessageBox.Save:
+            self._save_project()
+            return not self.project_modified  # Only proceed if save was successful
+        elif reply == QMessageBox.Discard:
+            return True
+        else:  # Cancel
+            return False
+    
+    def _update_window_title(self):
+        """Update the main window title to reflect current project status."""
+        base_title = self.i18n.get_string("app_title_placeholder")
+        
+        if self.current_project is None:
+            self.setWindowTitle(base_title)
+        else:
+            site_name = self.current_project.site_info.site_name or "Unnamed Site"
+            modified_indicator = "*" if self.project_modified else ""
+            self.setWindowTitle(f"{base_title} - {site_name}{modified_indicator}")
+    
+    def _mark_project_modified(self):
+        """Mark the current project as having unsaved changes."""
+        if not self.project_modified:
+            self.project_modified = True
+            self._update_window_title()
 
 # --- For standalone testing of the dialog (optional) ---
 if __name__ == '__main__':
