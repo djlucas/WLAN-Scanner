@@ -12,6 +12,7 @@
 # -----------------------------------------------------------------------------
 
 import numpy as np
+import time
 from PyQt5.QtGui import QColor, QPixmap, QPainter, QBrush
 from PyQt5.QtCore import Qt
 from typing import List, Tuple, Optional, Dict
@@ -57,7 +58,8 @@ class HeatmapGenerator:
 
     def generate_heatmap(self, scan_points: List[ScanPoint],
                         target_network: Optional[str] = None,
-                        floor: Optional[Floor] = None) -> QPixmap:
+                        floor: Optional[Floor] = None,
+                        status_callback=None) -> QPixmap:
         """
         Generate a signal strength heatmap from scan point data.
 
@@ -73,7 +75,7 @@ class HeatmapGenerator:
             return self._create_empty_heatmap()
 
         # Use direct signal-based rendering instead of grid interpolation
-        return self._create_signal_based_heatmap(scan_points, target_network)
+        return self._create_signal_based_heatmap(scan_points, target_network, floor, status_callback)
 
     def _extract_signal_data(self, scan_points: List[ScanPoint],
                            target_network: Optional[str]) -> List[Tuple[float, float, float]]:
@@ -253,78 +255,333 @@ class HeatmapGenerator:
         return pixmap
 
     def _create_signal_based_heatmap(self, scan_points: List[ScanPoint], 
-                                   target_network: Optional[str] = None) -> QPixmap:
+                                   target_network: Optional[str] = None, 
+                                   floor: Optional[Floor] = None,
+                                   status_callback=None) -> QPixmap:
         """
-        Create heatmap by drawing signal coverage circles at each scan point.
-        This represents actual measured signal strength at known locations.
+        Create heatmap by drawing signal coverage circles around APs based on scan measurements.
+        APs are the signal sources, scan points provide measurement data for modeling.
 
         Args:
-            scan_points: List of scan points containing AP data
+            scan_points: List of scan points containing measurement data
             target_network: Specific network SSID to focus on
 
         Returns:
-            QPixmap with signal coverage visualization
+            QPixmap with AP coverage visualization
         """
+        if not scan_points:
+            return self._create_empty_heatmap()
+        
+        # Report progress
+        if status_callback:
+            status_callback("analyzing_scan_data_status")
+            time.sleep(1.0)  # Pause to show message
+            
+        # Find all APs for the target network from scan data
+        ap_locations = self._identify_ap_locations(scan_points, target_network, floor)
+        
+        # Report progress
+        if status_callback:
+            status_callback("estimating_ap_locations_status")
+            time.sleep(1.0)  # Pause to show message
+        
+        if not ap_locations:
+            return self._create_empty_heatmap()
+
         pixmap = QPixmap(self.width, self.height)
         pixmap.fill(Qt.transparent)
 
+        # Create signal strength grid to determine strongest signal at each point
+        signal_grid = self._create_signal_strength_grid(ap_locations)
+        
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
 
-        for scan_point in scan_points:
-            if not scan_point.ap_list:
-                continue
-
-            # Find signal strength for this point
-            signal_strength = None
-            
-            if target_network:
-                # Look for specific network
-                for ap in scan_point.ap_list:
-                    if ap.ssid == target_network:
-                        signal_strength = ap.signal_strength
-                        break
-            else:
-                # Use strongest signal at this point
-                signal_strength = max(ap.signal_strength for ap in scan_point.ap_list)
-
-            if signal_strength is None:
-                continue
-
-            # Calculate coverage radius based on signal strength
-            # Strong signals get larger coverage circles
-            if signal_strength >= -40:
-                radius = 80
-            elif signal_strength >= -50:
-                radius = 65
-            elif signal_strength >= -60:
-                radius = 50
-            elif signal_strength >= -70:
-                radius = 35
-            elif signal_strength >= -80:
-                radius = 25
-            else:
-                radius = 15
-
-            # Get color for this signal strength
-            color = self._signal_to_color(signal_strength)
-            
-            # Make circles semi-transparent so they blend
-            color.setAlpha(120)
-
-            # Draw coverage circle at scan point location
-            painter.setBrush(QBrush(color))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(
-                int(scan_point.map_x - radius),
-                int(scan_point.map_y - radius),
-                int(radius * 2),
-                int(radius * 2)
-            )
+        # Draw the signal strength grid as colored pixels
+        self._draw_signal_grid(painter, signal_grid)
 
         painter.end()
         return pixmap
+
+    def _identify_ap_locations(self, scan_points: List[ScanPoint], target_network: Optional[str] = None, floor: Optional[Floor] = None):
+        """
+        Estimate AP source locations from scan data signal strength patterns.
+        
+        Args:
+            scan_points: List of scan points containing measurement data
+            target_network: Specific network SSID to focus on
+            floor: Floor object (used for boundary info, optional)
+            
+        Returns:
+            List of estimated AP location data with coordinates and signal info
+        """
+        ap_locations = []
+        
+        if not scan_points:
+            return ap_locations
+        
+        # Collect all networks matching the target
+        network_measurements = {}  # bssid -> list of (x, y, signal_strength)
+        
+        for scan_point in scan_points:
+            if not scan_point.ap_list:
+                continue
+                
+            for ap in scan_point.ap_list:
+                # Filter by target network if specified
+                if target_network and ap.ssid != target_network:
+                    continue
+                    
+                bssid = ap.bssid
+                if bssid not in network_measurements:
+                    network_measurements[bssid] = []
+                    
+                network_measurements[bssid].append({
+                    'x': scan_point.map_x,
+                    'y': scan_point.map_y,
+                    'signal': ap.signal_strength,
+                    'ap_data': ap
+                })
+        
+        # For each unique BSSID, estimate the source location
+        for bssid, measurements in network_measurements.items():
+            if len(measurements) < 2:  # Need at least 2 measurements for estimation
+                continue
+                
+            estimated_location = self._estimate_ap_source_location(measurements)
+            if estimated_location:
+                ap_locations.append(estimated_location)
+        
+        return ap_locations
+    
+    def _estimate_ap_source_location(self, measurements):
+        """
+        Estimate AP source location from signal strength measurements.
+        
+        Args:
+            measurements: List of {'x': x, 'y': y, 'signal': signal, 'ap_data': ap_data}
+            
+        Returns:
+            Dict with estimated AP location and signal info
+        """
+        if not measurements:
+            return None
+            
+        # Find the measurement with strongest signal (closest to source)
+        strongest_measurement = max(measurements, key=lambda m: m['signal'])
+        
+        # Use weighted average based on signal strength for more accuracy
+        total_weight = 0
+        weighted_x = 0
+        weighted_y = 0
+        
+        for measurement in measurements:
+            # Convert dBm to linear scale for weighting (higher signal = more weight)
+            # Use exponential weighting: stronger signals get much more influence
+            signal_linear = pow(10, measurement['signal'] / 10)
+            weight = signal_linear
+            
+            weighted_x += measurement['x'] * weight
+            weighted_y += measurement['y'] * weight
+            total_weight += weight
+        
+        if total_weight == 0:
+            return None
+            
+        estimated_x = weighted_x / total_weight
+        estimated_y = weighted_y / total_weight
+        
+        return {
+            'bssid': strongest_measurement['ap_data'].bssid,
+            'x': estimated_x,  # Estimated AP source location
+            'y': estimated_y,
+            'max_signal': strongest_measurement['signal'],
+            'ssid': strongest_measurement['ap_data'].ssid,
+            'channel': strongest_measurement['ap_data'].channel,
+            'band': getattr(strongest_measurement['ap_data'], 'band', '2.4 GHz'),
+            'placed_ap': None  # This is an estimated location, not a placed AP
+        }
+
+    def _create_signal_strength_grid(self, ap_locations):
+        """
+        Create a grid where each cell contains the strongest signal at that location.
+        
+        Args:
+            ap_locations: List of AP location data
+            
+        Returns:
+            2D numpy array with signal strength values (strongest signal wins)
+        """
+        # Use a reasonable grid resolution for smooth gradients
+        grid_resolution = 4  # pixels per grid cell
+        grid_width = self.width // grid_resolution
+        grid_height = self.height // grid_resolution
+        
+        # Initialize with very weak signal
+        signal_grid = np.full((grid_height, grid_width), -999.0)
+        
+        # For each grid cell, calculate signal from all APs and take the strongest
+        for row in range(grid_height):
+            for col in range(grid_width):
+                # Convert grid coordinates to pixel coordinates (center of cell)
+                pixel_x = col * grid_resolution + grid_resolution // 2
+                pixel_y = row * grid_resolution + grid_resolution // 2
+                
+                strongest_signal = -999
+                
+                # Check signal strength from each AP at this location
+                for ap_location in ap_locations:
+                    signal = self._calculate_signal_at_point(
+                        ap_location, pixel_x, pixel_y
+                    )
+                    if signal > strongest_signal:
+                        strongest_signal = signal
+                
+                # Only store if signal is above minimum threshold
+                if strongest_signal > -95:
+                    signal_grid[row, col] = strongest_signal
+                else:
+                    signal_grid[row, col] = np.nan  # No signal
+        
+        return signal_grid
+    
+    def _calculate_signal_at_point(self, ap_location, x, y):
+        """
+        Calculate signal strength from an AP at a specific point.
+        
+        Args:
+            ap_location: AP location data
+            x, y: Point coordinates
+            
+        Returns:
+            Signal strength in dBm
+        """
+        ap_x = ap_location['x']
+        ap_y = ap_location['y']
+        max_signal = ap_location['max_signal']
+        
+        # Calculate distance in pixels
+        distance_pixels = ((x - ap_x) ** 2 + (y - ap_y) ** 2) ** 0.5
+        
+        # Convert to feet
+        distance_feet = distance_pixels * (164.0 / self.width)
+        
+        # Apply path loss model
+        band = ap_location.get('band', '2.4 GHz')
+        path_loss_per_foot = 0.5 if band == '2.4 GHz' else 0.6
+        
+        signal_loss = distance_feet * path_loss_per_foot
+        signal_at_point = max_signal - signal_loss
+        
+        return signal_at_point
+    
+    def _draw_signal_grid(self, painter, signal_grid):
+        """
+        Draw the signal strength grid as colored rectangles.
+        
+        Args:
+            painter: QPainter object
+            signal_grid: 2D numpy array with signal values
+        """
+        grid_resolution = 4
+        rows, cols = signal_grid.shape
+        
+        for row in range(rows):
+            for col in range(cols):
+                signal_strength = signal_grid[row, col]
+                
+                # Skip cells with no signal
+                if np.isnan(signal_strength):
+                    continue
+                
+                # Get color for this signal strength
+                color = self._signal_to_color_gradient(signal_strength)
+                color.setAlpha(150)  # Semi-transparent for blending
+                
+                # Calculate pixel position
+                x = col * grid_resolution
+                y = row * grid_resolution
+                
+                # Draw filled rectangle
+                painter.setBrush(QBrush(color))
+                painter.setPen(Qt.NoPen)
+                painter.drawRect(x, y, grid_resolution, grid_resolution)
+
+    def _draw_ap_coverage_circles(self, painter: QPainter, ap_location: dict):
+        """
+        Draw gradient coverage circles around an AP with smooth color transitions.
+        
+        Args:
+            painter: QPainter object to draw with
+            ap_location: AP location data with coordinates and signal info
+        """
+        ap_x = ap_location['x']
+        ap_y = ap_location['y']
+        max_signal = ap_location['max_signal']
+        
+        # Calculate maximum radius (where signal drops to -90 dBm)
+        band = ap_location.get('band', '2.4 GHz')
+        path_loss_per_foot = 0.5 if band == '2.4 GHz' else 0.6
+        
+        max_signal_drop = max_signal - (-90)  # Drop to -90 dBm
+        max_distance_feet = abs(max_signal_drop) / path_loss_per_foot
+        max_radius_pixels = max_distance_feet * (self.width / 164.0)
+        
+        # Don't draw if radius is too large
+        if max_radius_pixels > max(self.width, self.height):
+            max_radius_pixels = max(self.width, self.height)
+        
+        # Draw concentric circles with gradient from center outward
+        # Use many small rings to create smooth gradient effect
+        num_rings = int(max_radius_pixels / 5)  # Ring every 5 pixels
+        
+        for ring in range(num_rings, 0, -1):  # Draw from outside to inside
+            radius_pixels = (ring / num_rings) * max_radius_pixels
+            
+            # Calculate signal strength at this distance
+            distance_feet = radius_pixels * (164.0 / self.width)
+            signal_loss = distance_feet * path_loss_per_foot
+            signal_at_distance = max_signal - signal_loss
+            
+            # Clamp signal to reasonable range
+            signal_at_distance = max(-95, min(-20, signal_at_distance))
+            
+            # Get color for this signal strength with gradient interpolation
+            color = self._signal_to_color_gradient(signal_at_distance)
+            
+            # Make rings more transparent toward edges for smooth blending
+            base_alpha = 120  # Base transparency
+            edge_factor = 1.0 - (ring / num_rings)  # 0 at edge, 1 at center
+            alpha = int(base_alpha * (0.3 + 0.7 * edge_factor))  # 30% to 100% of base
+            color.setAlpha(alpha)
+            
+            # Draw ring (filled circle)
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(
+                int(ap_x - radius_pixels),
+                int(ap_y - radius_pixels),
+                int(radius_pixels * 2),
+                int(radius_pixels * 2)
+            )
+
+    def _is_primary_network_bssid(self, bssid: str, target_network: str) -> bool:
+        """
+        Check if a BSSID belongs to a primary network family based on patterns.
+        
+        This method can be extended to support BSSID-based network identification
+        for cases where SSIDs may be obfuscated but BSSID patterns are known.
+        
+        Args:
+            bssid: The BSSID to check
+            target_network: Target network SSID
+            
+        Returns:
+            True if BSSID matches the primary network pattern
+        """
+        # Currently returns False - can be extended for specific deployment needs
+        # without hardcoding sensitive network information in source code
+        return False
 
     def _signal_to_color(self, signal_strength: float) -> QColor:
         """
@@ -342,6 +599,50 @@ class HeatmapGenerator:
 
         # Default to blue for very weak signals
         return self.SIGNAL_RANGES[-1][2]  # Blue
+
+    def _signal_to_color_gradient(self, signal_strength: float) -> QColor:
+        """
+        Map signal strength to color with smooth gradient interpolation.
+        
+        Args:
+            signal_strength: Signal strength in dBm
+            
+        Returns:
+            QColor with interpolated color based on signal strength
+        """
+        # Define color points for smooth interpolation
+        # Format: (signal_dBm, red, green, blue)
+        color_points = [
+            (-20, 0, 255, 0),     # Bright green (excellent)
+            (-45, 255, 255, 0),   # Yellow (good)
+            (-60, 255, 165, 0),   # Orange (fair)
+            (-75, 255, 0, 0),     # Red (poor)
+            (-90, 0, 0, 255),     # Blue (very poor)
+        ]
+        
+        # Clamp signal to our range
+        signal_strength = max(-95, min(-15, signal_strength))
+        
+        # Find the two color points to interpolate between
+        for i in range(len(color_points) - 1):
+            signal1, r1, g1, b1 = color_points[i]
+            signal2, r2, g2, b2 = color_points[i + 1]
+            
+            if signal1 >= signal_strength >= signal2:
+                # Linear interpolation between the two points
+                if signal1 == signal2:
+                    factor = 0
+                else:
+                    factor = (signal_strength - signal2) / (signal1 - signal2)
+                
+                r = int(r2 + factor * (r1 - r2))
+                g = int(g2 + factor * (g1 - g2))
+                b = int(b2 + factor * (b1 - b2))
+                
+                return QColor(r, g, b)
+        
+        # Fallback to blue for very weak signals
+        return QColor(0, 0, 255)
 
     def _create_empty_heatmap(self) -> QPixmap:
         """Create empty transparent heatmap."""

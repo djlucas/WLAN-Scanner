@@ -105,7 +105,24 @@ pip install -r requirements.txt
     ```
 
 3.  **Configure Poppler**:
-    The application needs the path to the `poppler` binaries (e.g., `pdftoppm.exe`). You will be prompted to set this path in the Preferences dialog upon the first launch.
+    The application needs the `poppler` binaries for PDF floor plan processing.
+    
+    **Windows Users**: Download and extract Poppler from:
+    https://github.com/oschwartz10612/poppler-windows/releases
+    
+    Extract the contents to the `poppler/` subdirectory in your WLAN-Scanner folder. The application will automatically detect the binaries in either:
+    - `poppler/Library/bin/pdftoppm.exe` (direct extraction)
+    - `poppler/poppler-*/Library/bin/pdftoppm.exe` (versioned directories)
+    
+    Alternatively, extract to any location and set the path manually in Preferences.
+    
+    **Linux Users**: Install poppler through your package manager:
+    - Ubuntu/Debian: `sudo apt-get install poppler-utils`
+    - The application will automatically detect poppler if installed in system paths.
+    
+    **macOS Users**: Install poppler through Homebrew:
+    - `brew install poppler`
+    - The application will automatically detect poppler in Homebrew paths (`/opt/homebrew/bin` for Apple Silicon or `/usr/local/bin` for Intel Macs).
 
 4.  **Scan Scripts**:
     The platform-specific scan scripts (`get-wlans.ps1` and `get-wlans.sh`) are included in the `scripts/` directory.

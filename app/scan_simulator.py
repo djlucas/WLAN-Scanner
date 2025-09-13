@@ -22,11 +22,18 @@ class ScanSimulator:
     Now includes spatial consistency for realistic site surveys.
     """
     
-    # Primary site networks (appear consistently across the site)
+    # Primary site networks - based on real TP-Link empirical data
+    # Hardware base MAC with TP-Link BSSID allocation pattern: first octet shifts for SSIDs, last octet for bands
     PRIMARY_NETWORKS = [
-        {"ssid": "LITS", "bssid_base": "2C-B4-3A-12-34", "channel": 6, "band": "2.4 GHz", "base_power": -25},
-        {"ssid": "LITS-Guest", "bssid_base": "2C-B4-3A-12-35", "channel": 11, "band": "2.4 GHz", "base_power": -30},
-        {"ssid": "LITS-IOT", "bssid_base": "2C-B4-3A-56-78", "channel": 149, "band": "5 GHz", "base_power": -28},
+        # 2.4GHz radio (Channel 1, 8E suffix) - Creation order with +6, +4, +4 pattern
+        {"ssid": "WLANS", "first_octet": 0x9C, "base_power": -22, "channel": 1, "band": "2.4 GHz"},        # Original
+        {"ssid": "WLANS-IOT", "first_octet": 0xA2, "base_power": -23, "channel": 1, "band": "2.4 GHz"},   # +6 increment
+        {"ssid": "{Hidden}", "first_octet": 0xA6, "base_power": -22, "channel": 1, "band": "2.4 GHz"},   # +4 increment
+        {"ssid": "WLANS-Guest", "first_octet": 0xAA, "base_power": -23, "channel": 1, "band": "2.4 GHz"}, # +4 increment
+        
+        # 5GHz radio (Channel 100, 8F suffix) - Same pattern, different band
+        {"ssid": "WLANS", "first_octet": 0x9C, "base_power": -28, "channel": 100, "band": "5 GHz"},
+        {"ssid": "WLANS-Guest", "first_octet": 0xA6, "base_power": -26, "channel": 100, "band": "5 GHz"},
     ]
     
     # Secondary networks (appear at some locations)
@@ -79,44 +86,67 @@ class ScanSimulator:
             (self.floor_width * 0.50, self.floor_height * 0.75),  # S center
         ]
         
-        for i, (network, (x, y)) in enumerate(zip(self.PRIMARY_NETWORKS, ap_positions)):
+        # Group networks by unique AP (same position gets all SSIDs from that AP)
+        unique_aps = {}
+        for network in self.PRIMARY_NETWORKS:
+            ap_key = f"{network['band']}_ap"  # Group 2.4GHz and 5GHz together
+            if ap_key not in unique_aps:
+                unique_aps[ap_key] = []
+            unique_aps[ap_key].append(network)
+        
+        # Place one AP per position with all its SSIDs
+        for ap_index, ((x, y), (ap_key, networks)) in enumerate(zip(ap_positions, unique_aps.items())):
             # Add some randomness but keep consistent per seed
             x += random.randint(-50, 50)
             y += random.randint(-50, 50)
             
-            locations.append({
-                'network': network,
-                'x': x,
-                'y': y,
-                'bssid': f"{network['bssid_base']}-{i:02X}"
-            })
+            # Generate base MAC for this simulated AP
+            base_mac = f"9C-A2-F4-{random.randint(0x10, 0xFF):02X}-{random.randint(0x10, 0xFF):02X}"
+            
+            # Add all networks for this AP location
+            for network in networks:
+                band_suffix = "8E" if network['band'] == "2.4 GHz" else "8F"
+                tp_link_bssid = f"{network['first_octet']:02X}-{base_mac[3:]}-{band_suffix}"
+                
+                locations.append({
+                    'network': network,
+                    'x': x,
+                    'y': y,
+                    'bssid': tp_link_bssid
+                })
         
         return locations
     
     def _map_placed_aps_to_networks(self, placed_aps):
         """
-        Map actual placed APs to primary network types.
+        Map actual placed APs to primary network types using TP-Link BSSID pattern.
         
         Args:
             placed_aps: List of placed AP objects from the project
             
         Returns:
-            List of AP locations mapped to primary networks
+            List of AP locations mapped to primary networks with realistic BSSIDs
         """
         locations = []
         
-        # Map each placed AP to a primary network (cycling through available networks)
+        # Generate realistic TP-Link BSSIDs for each placed AP
         for i, ap in enumerate(placed_aps):
-            network_index = i % len(self.PRIMARY_NETWORKS)
-            network = self.PRIMARY_NETWORKS[network_index]
+            # Generate base MAC for this AP (TP-Link OUI: 9C-A2-F4)
+            base_mac = f"9C-A2-F4-{random.randint(0x10, 0xFF):02X}-{random.randint(0x10, 0xFF):02X}"
             
-            locations.append({
-                'network': network,
-                'x': ap.map_x,  # Use actual AP coordinates
-                'y': ap.map_y,
-                'bssid': f"{network['bssid_base']}-{i:02X}",
-                'placed_ap': ap  # Keep reference to original AP
-            })
+            # Add all SSID variants for this AP location
+            for network in self.PRIMARY_NETWORKS:
+                # Create TP-Link BSSID: first octet from network, base MAC middle, band suffix
+                band_suffix = "8E" if network['band'] == "2.4 GHz" else "8F"
+                tp_link_bssid = f"{network['first_octet']:02X}-{base_mac[3:]}-{band_suffix}"
+                
+                locations.append({
+                    'network': network,
+                    'x': ap.map_x,  # Use actual AP coordinates
+                    'y': ap.map_y,
+                    'bssid': tp_link_bssid,
+                    'placed_ap': ap  # Keep reference to original AP
+                })
         
         return locations
     
@@ -140,14 +170,16 @@ class ScanSimulator:
         
         return locations
     
-    def _calculate_signal_strength(self, ap_x, ap_y, scan_x, scan_y, base_power):
+    def _calculate_signal_strength(self, ap_x, ap_y, scan_x, scan_y, base_power, band="2.4 GHz"):
         """
-        Calculate signal strength based on distance using realistic RF propagation.
+        Calculate signal strength using empirical TP-Link path loss model.
+        Based on real measurement data: ~0.5 dB/ft (2.4GHz), ~0.6 dB/ft (5GHz)
         
         Args:
             ap_x, ap_y: AP location coordinates
             scan_x, scan_y: Scan location coordinates  
             base_power: Base power level of the AP (dBm)
+            band: Frequency band ("2.4 GHz" or "5 GHz")
             
         Returns:
             int: Signal strength in dBm
@@ -155,15 +187,20 @@ class ScanSimulator:
         # Calculate distance in pixels
         distance_pixels = math.sqrt((scan_x - ap_x)**2 + (scan_y - ap_y)**2)
         
-        # Convert pixels to approximate meters (assuming 1920px = ~50m floor width)
-        distance_meters = distance_pixels * (50.0 / self.floor_width)
+        # Convert pixels to feet (assuming 1920px = ~50m = ~164ft floor width)
+        distance_feet = distance_pixels * (164.0 / self.floor_width)
         
-        # Prevent division by zero
-        distance_meters = max(distance_meters, 0.1)
+        # Empirical path loss model from real TP-Link measurements
+        if band == "2.4 GHz":
+            path_loss_per_foot = 0.5  # dB per foot
+        else:  # 5 GHz
+            path_loss_per_foot = 0.6  # dB per foot
+            
+        # Calculate path loss
+        path_loss = distance_feet * path_loss_per_foot
         
-        # Free space path loss: 20*log10(d) + 20*log10(f) + 32.44
-        # Simplified for 2.4GHz: roughly 40*log10(distance) + environmental factors
-        path_loss = 40 * math.log10(distance_meters) + random.randint(-5, 5)  # Some randomness
+        # Add small random variation (±2dB) for realism
+        path_loss += random.uniform(-2, 2)
         
         # Calculate final signal strength
         signal_strength = base_power - path_loss
@@ -200,11 +237,12 @@ class ScanSimulator:
             network = ap_location['network']
             
             if scan_x is not None and scan_y is not None:
-                # Calculate realistic signal strength based on distance
+                # Calculate realistic signal strength based on distance using empirical model
                 rssi = self._calculate_signal_strength(
                     ap_location['x'], ap_location['y'],
                     scan_x, scan_y,
-                    network['base_power']
+                    network['base_power'],
+                    network['band']
                 )
             else:
                 # Fallback to random but weighted toward stronger signals
@@ -234,7 +272,8 @@ class ScanSimulator:
                     rssi = self._calculate_signal_strength(
                         ap_location['x'], ap_location['y'],
                         scan_x, scan_y,
-                        network['base_power']
+                        network['base_power'],
+                        network['band']
                     )
                 else:
                     rssi = random.randint(-85, -40)

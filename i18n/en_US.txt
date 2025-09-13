@@ -69,6 +69,7 @@ menu_scan_run_scan=Run Scan (Current Location)
 menu_scan_configure_scan_tools=Configure Scan Tools...
 menu_report=Report
 menu_report_generate_pdf_report=Generate PDF Report...
+menu_report_export_map_image=Export Map as Image...
 menu_view=View
 menu_view_toggle_ap_list_panel=Toggle AP List Panel
 menu_view_zoom_in=Zoom In
@@ -162,6 +163,51 @@ scale_lines_cancelled_status=Scale line setup cancelled for Floor {floor_number}
 image_load_error_for_display=Could not load map for Floor {floor_number} of '{site_name}'.
 no_map_for_current_floor_message=No map image available for Floor {floor_number} of '{site_name}'. Please add or edit the floor map.
 enter_horizontal_dimension_message=Step 1: Enter the physical dimension for the pre-drawn horizontal line.
+
+# Interactive Map Context Menu
+edit_ap_properties=Edit AP Properties
+rescan_at_this_ap=Rescan at This AP
+clear_this_ap_scan_data=Clear This AP's Scan Data
+scan_at_this_ap=Scan at This AP
+remove_ap=Remove AP
+scan_point_info=Scan Point ({count} networks)
+remove_this_scan_point=Remove This Scan Point
+rescan_at_this_location=Rescan at This Location
+show_scan_data=Show Scan Data
+place_access_point_here=Place Access Point Here
+run_live_scan_here=Run Live Scan Here
+run_scan_here_simulated=Run Scan Here (Simulated)
+clear_all_scan_data=Clear All Scan Data
+remove_all_aps=Remove All APs
+
+# Status Messages
+ap_renamed_status=AP renamed from '{old_name}' to '{ap_name}'
+ap_removed_status=AP '{ap_name}' removed
+scanning_at_location_status=Scanning at ({x}, {y})...
+scan_completed_status={scan_type} scan completed at ({x}, {y}) - {count} networks detected
+scan_failed_status=Scan failed at ({x}, {y}) - using simulated data
+scan_error_status=Scan error at ({x}, {y})
+status_legend=🔵 Blue APs = Scanned • 🟠 Orange APs = Need scanning • Right-click to place/scan • {scan_status} scanning available
+all_aps_cleared_status=All APs cleared
+all_scan_points_cleared_status=All scan points cleared
+cleared_scan_data_status=Cleared {parts} - APs now need rescanning
+no_scan_data_to_clear_status=No scan data to clear
+scanning_at_ap_status=Scanning at AP '{ap_name}'...
+ap_scan_completed_status={scan_type} scan completed at AP '{ap_name}' - {count} networks detected
+ap_scan_failed_status=Scan failed at AP '{ap_name}' - using simulated data
+ap_scan_error_status=Scan error at AP '{ap_name}'
+ap_scan_data_cleared_status=Cleared scan data from AP '{ap_name}' (keeping AP placement)
+removed_scan_point_status=Removed scan point with {count} networks
+removed_items_status=Removed {parts} - map cleared
+no_aps_to_remove_status=No APs to remove
+ap_placed_no_scan_status=AP '{ap_name}' placed at ({x}, {y}) - no scan performed
+
+# Progress Messages
+generating_heatmap_status=Generating heatmap...
+analyzing_scan_data_status=Analyzing scan data...
+estimating_ap_locations_status=Estimating AP locations...
+processing_image_status=Processing image...
+detecting_scale_lines_status=Detecting scale lines...
 edit_horizontal_dimension_message=Adjust the horizontal line by dragging its ends, then enter its physical dimension.
 edit_vertical_dimension_message=Adjust the vertical line by dragging its ends, then enter its physical dimension.
 edit_scale_lines_message=Scale lines set. You can adjust them by dragging the ends, or click OK.

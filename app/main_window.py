@@ -144,34 +144,25 @@ class MainWindow(QMainWindow):
 
         # Scan Menu
         scan_menu = menu_bar.addMenu(self.i18n.get_string("menu_scan"))
-        run_scan_action = QAction(self.i18n.get_string("menu_scan_run_scan"), self)
-        run_scan_action.triggered.connect(self._run_scan)
-        scan_menu.addAction(run_scan_action)
-
-        scan_menu.addSeparator()
+        
         info_action = QAction("Place APs and Scan Points (Right-click on map)", self)
         info_action.setEnabled(False)  # Just informational
         scan_menu.addAction(info_action)
 
         scan_menu.addSeparator()
-        scan_all_aps_action = QAction("Scan at All AP Locations", self)
-        scan_all_aps_action.triggered.connect(lambda: self.map_view._scan_at_all_aps())
-        scan_menu.addAction(scan_all_aps_action)
-
-        clear_scan_data_action = QAction("Clear All AP Scan Data", self)
-        clear_scan_data_action.triggered.connect(lambda: self.map_view._clear_all_ap_scan_data())
+        clear_scan_data_action = QAction(self.i18n.get_string("clear_all_scan_data"), self)
+        clear_scan_data_action.triggered.connect(lambda: self.map_view._clear_all_scan_data())
         scan_menu.addAction(clear_scan_data_action)
-
-        scan_menu.addSeparator()
-        configure_scan_tools_action = QAction(self.i18n.get_string("menu_scan_configure_scan_tools"), self)
-        configure_scan_tools_action.triggered.connect(self._configure_scan_tools)
-        scan_menu.addAction(configure_scan_tools_action)
 
         # Report Menu
         report_menu = menu_bar.addMenu(self.i18n.get_string("menu_report"))
         generate_pdf_report_action = QAction(self.i18n.get_string("menu_report_generate_pdf_report"), self)
         generate_pdf_report_action.triggered.connect(self._generate_pdf_report)
         report_menu.addAction(generate_pdf_report_action)
+        
+        export_map_image_action = QAction(self.i18n.get_string("menu_report_export_map_image"), self)
+        export_map_image_action.triggered.connect(self._export_map_image)
+        report_menu.addAction(export_map_image_action)
 
         # View Menu
         view_menu = menu_bar.addMenu(self.i18n.get_string("menu_view"))
@@ -657,6 +648,53 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, self.i18n.get_string("info_title"), "Generate PDF Report functionality not yet implemented.")
         if self.debug_mode:
             print("DEBUG: Generate PDF Report functionality called (not implemented).")
+    
+    def _export_map_image(self):
+        """Export the current map view as a PNG image"""
+        from PyQt5.QtWidgets import QFileDialog
+        from PyQt5.QtCore import QStandardPaths
+        import os
+        
+        if self.current_project is None or not hasattr(self, 'map_view'):
+            QMessageBox.warning(self, "No Map", "Please load a project with a map to export.")
+            return
+            
+        # Get the current map display pixmap from the map view
+        current_pixmap = self.map_view.display_pixmap
+        if not current_pixmap or current_pixmap.isNull():
+            QMessageBox.warning(self, "No Map Image", "No map image available to export.")
+            return
+        
+        # Get default export location (Documents folder)
+        documents_path = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        site_name = self.current_project.site_info.site_name if self.current_project else "map"
+        default_filename = f"{site_name}_map_export.png"
+        default_path = os.path.join(documents_path, default_filename)
+        
+        # Show save dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Map as Image",
+            default_path,
+            "PNG Images (*.png);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                # Save the pixmap as PNG
+                success = current_pixmap.save(file_path, "PNG")
+                if success:
+                    QMessageBox.information(self, "Export Successful", f"Map exported to:\n{file_path}")
+                    if self.debug_mode:
+                        print(f"DEBUG: Map exported successfully to {file_path}")
+                else:
+                    QMessageBox.critical(self, "Export Failed", "Failed to save the map image.")
+                    if self.debug_mode:
+                        print(f"DEBUG: Failed to export map to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Error exporting map:\n{str(e)}")
+                if self.debug_mode:
+                    print(f"DEBUG: Export error: {e}")
 
     def _toggle_heatmap(self):
         """Toggle heatmap display on/off"""

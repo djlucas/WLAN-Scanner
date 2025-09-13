@@ -14,11 +14,12 @@
 
 import datetime
 import random
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction, QDialog, QScrollArea, QPushButton, QApplication
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent
 from .data_models import PlacedAP, ScanPoint
 from .scan_simulator import ScanSimulator
+from .wifi_scanner import WiFiScanner, WiFiScanError
 from .heatmap_generator import HeatmapGenerator
 
 class InteractiveMapView(QWidget):
@@ -60,8 +61,12 @@ class InteractiveMapView(QWidget):
         self.drag_offset = QPoint(0, 0)
         self.right_click_position = QPoint(0, 0)  # Store right-click position for context menu
         
+        
         # Simulator for testing
-        self.simulator = ScanSimulator(seed=42)  # Fixed seed for consistent results
+        # Initialize both live scanner and simulator for fallback
+        self.wifi_scanner = WiFiScanner()
+        self.simulator = ScanSimulator(seed=42)  # Fallback for testing
+        self.use_live_scanning = self.wifi_scanner.is_available()
         
         self._init_ui()
         
@@ -247,12 +252,26 @@ class InteractiveMapView(QWidget):
             self.heatmap_generator.width = width
             self.heatmap_generator.height = height
         
-        # Generate heatmap
+        # Generate heatmap with progress indication
+        self.status_label.setText(self.i18n.get_string("generating_heatmap_status"))
+        
+        # Force UI update to show status message immediately
+        QApplication.processEvents()
+        
+        # Let the "Generating heatmap..." message show for 1 second
+        import time
+        time.sleep(1.0)
+        
         self.heatmap_pixmap = self.heatmap_generator.generate_heatmap(
             self.current_floor.scan_points,
             target_network=self.current_heatmap_network,
-            floor=self.current_floor
+            floor=self.current_floor,
+            status_callback=self._heatmap_progress_callback
         )
+        
+        # Clear progress message - restore normal status
+        scan_status = "Live WiFi" if self.use_live_scanning else "Simulated"
+        self.status_label.setText(self.i18n.get_string("status_legend").format(scan_status=scan_status))
         
         if self.debug_mode:
             networks = self.heatmap_generator.get_connected_networks(self.current_floor.scan_points)
@@ -319,20 +338,22 @@ class InteractiveMapView(QWidget):
             # Left-click on empty space does nothing - use right-click for placement
     
     def _map_mouse_move(self, event):
-        """Handle mouse move events (for dragging)"""
-        if not self.dragging_ap or not self.base_pixmap:
+        """Handle mouse move events (for dragging and hover)"""
+        if not self.base_pixmap:
             return
             
         map_pos = self._label_to_map_coords(event.pos())
         if not map_pos:
             return
-            
-        # Update AP position
-        self.dragging_ap.map_x = map_pos.x() - self.drag_offset.x()
-        self.dragging_ap.map_y = map_pos.y() - self.drag_offset.y()
         
-        # Re-render the map
-        self._render_map()
+        # Handle AP dragging
+        if self.dragging_ap:
+            # Update AP position
+            self.dragging_ap.map_x = map_pos.x() - self.drag_offset.x()
+            self.dragging_ap.map_y = map_pos.y() - self.drag_offset.y()
+            
+            # Re-render the map
+            self._render_map()
     
     def _map_mouse_release(self, event):
         """Handle mouse release events"""
@@ -358,53 +379,63 @@ class InteractiveMapView(QWidget):
             
         context_menu = QMenu(self)
         
-        # Check if right-clicking on an existing AP
+        # Check if right-clicking on an existing AP or scan point
         clicked_ap = self._get_ap_at_position(self.right_click_position.x(), self.right_click_position.y())
+        clicked_scan_point = self._get_scan_point_at_position(self.right_click_position.x(), self.right_click_position.y())
         
         if clicked_ap:
             # Menu options for existing AP
-            context_menu.addAction("Edit AP Properties", lambda: self._edit_ap_properties(clicked_ap))
+            context_menu.addAction(self.i18n.get_string("edit_ap_properties"), lambda: self._edit_ap_properties(clicked_ap))
             
-            # Smart scan options based on whether AP has scan data
+            # Scan options - always show rescan, plus additional options if has data
+            context_menu.addAction(self.i18n.get_string("rescan_at_this_ap"), lambda: self._scan_at_ap(clicked_ap))
+            
             if self._has_scan_data(clicked_ap):
-                context_menu.addAction("Rescan at This AP", lambda: self._scan_at_ap(clicked_ap))
-                context_menu.addAction("Clear This AP's Scan Data", lambda: self._clear_ap_scan_data(clicked_ap))
-            else:
-                context_menu.addAction("Scan at This AP", lambda: self._scan_at_ap(clicked_ap))
+                context_menu.addAction(self.i18n.get_string("clear_this_ap_scan_data"), lambda: self._clear_ap_scan_data(clicked_ap))
+                context_menu.addSeparator()
+                context_menu.addAction(self.i18n.get_string("show_scan_data"), lambda: self._show_ap_scan_data(clicked_ap))
             
-            context_menu.addAction("Remove AP", lambda: self._remove_ap(clicked_ap))
+            context_menu.addSeparator()
+            context_menu.addAction(self.i18n.get_string("remove_ap"), lambda: self._remove_ap(clicked_ap))
+            context_menu.addSeparator()
+            
+        elif clicked_scan_point:
+            # Menu options for existing scan point
+            networks_count = len(clicked_scan_point.ap_list) if clicked_scan_point.ap_list else 0
+            context_menu.addAction(self.i18n.get_string("scan_point_info").format(count=networks_count), lambda: None).setEnabled(False)  # Info only
+            context_menu.addAction(self.i18n.get_string("rescan_at_this_location"), lambda: self._rescan_scan_point(clicked_scan_point))
+            context_menu.addAction(self.i18n.get_string("show_scan_data"), lambda: self._show_scan_point_data(clicked_scan_point))
+            context_menu.addSeparator()
+            context_menu.addAction(self.i18n.get_string("remove_this_scan_point"), lambda: self._remove_scan_point(clicked_scan_point))
             context_menu.addSeparator()
         
-        # General placement options
-        place_ap_action = QAction("Place Access Point Here", self)
-        place_ap_action.triggered.connect(lambda: self._place_ap_at_position(
-            self.right_click_position.x(), 
-            self.right_click_position.y()
-        ))
-        context_menu.addAction(place_ap_action)
-        
-        scan_here_action = QAction("Run Scan Here (Simulated)", self)
-        scan_here_action.triggered.connect(lambda: self._add_scan_point_at_position(
-            self.right_click_position.x(), 
-            self.right_click_position.y()
-        ))
-        context_menu.addAction(scan_here_action)
+        else:
+            # Only show placement and scan options when clicking on empty space
+            place_ap_action = QAction(self.i18n.get_string("place_access_point_here"), self)
+            place_ap_action.triggered.connect(lambda: self._place_ap_at_position(
+                self.right_click_position.x(), 
+                self.right_click_position.y()
+            ))
+            context_menu.addAction(place_ap_action)
+            
+            scan_label = self.i18n.get_string("run_live_scan_here") if self.use_live_scanning else self.i18n.get_string("run_scan_here_simulated")
+            scan_here_action = QAction(scan_label, self)
+            scan_here_action.triggered.connect(lambda: self._add_scan_point_at_position(
+                self.right_click_position.x(), 
+                self.right_click_position.y()
+            ))
+            context_menu.addAction(scan_here_action)
         
         context_menu.addSeparator()
         
-        # Bulk scan operations
-        if self.current_floor.placed_aps:
-            context_menu.addSeparator()
-            context_menu.addAction("Scan at All AP Locations", self._scan_at_all_aps)
-            context_menu.addAction("Clear All AP Scan Data", self._clear_all_ap_scan_data)
-        
-        # View options
+        # Bulk operations
         context_menu.addSeparator()
-        if self.current_floor.placed_aps:
-            context_menu.addAction("Clear All APs", self.clear_all_aps)
         
-        if self.current_floor.scan_points:
-            context_menu.addAction("Clear All Scan Points", self.clear_all_scan_points)
+        if self.current_floor.scan_points or any(self._has_scan_data(ap) for ap in self.current_floor.placed_aps):
+            context_menu.addAction(self.i18n.get_string("clear_all_scan_data"), self._clear_all_scan_data)
+        
+        if self.current_floor.placed_aps:
+            context_menu.addAction(self.i18n.get_string("remove_all_aps"), self._remove_all_aps)
         
         # Show the context menu
         context_menu.exec_(global_pos)
@@ -430,7 +461,7 @@ class InteractiveMapView(QWidget):
             old_name = ap.name
             ap.name = new_name.strip()
             self._render_map()
-            self.status_label.setText(f"AP renamed from '{old_name}' to '{ap.name}'")
+            self.status_label.setText(self.i18n.get_string("ap_renamed_status").format(old_name=old_name, ap_name=ap.name))
             
             if self.debug_mode:
                 print(f"DEBUG: AP renamed from '{old_name}' to '{ap.name}'")
@@ -453,7 +484,7 @@ class InteractiveMapView(QWidget):
         if reply == QMessageBox.Yes:
             self.current_floor.placed_aps.remove(ap)
             self._render_map()
-            self.status_label.setText(f"AP '{ap.name}' removed")
+            self.status_label.setText(self.i18n.get_string("ap_removed_status").format(ap_name=ap.name))
             
             if self.debug_mode:
                 print(f"DEBUG: AP '{ap.name}' removed from floor")
@@ -520,6 +551,27 @@ class InteractiveMapView(QWidget):
                 
         return None
     
+    def _get_scan_point_at_position(self, x, y, tolerance=20):
+        """
+        Get scan point at the specified position
+        
+        Args:
+            x, y (int): Position coordinates
+            tolerance (int): Search tolerance in pixels
+            
+        Returns:
+            ScanPoint or None: The scan point at that position
+        """
+        if not self.current_floor or not self.current_floor.scan_points:
+            return None
+            
+        for scan_point in self.current_floor.scan_points:
+            distance = ((x - scan_point.map_x) ** 2 + (y - scan_point.map_y) ** 2) ** 0.5
+            if distance <= tolerance:
+                return scan_point
+        
+        return None
+    
     def _place_ap_at_position(self, x, y):
         """
         Place a new AP at the specified position
@@ -568,42 +620,93 @@ class InteractiveMapView(QWidget):
         # Immediately offer to scan at the new AP location
         self._offer_immediate_scan(new_ap)
     
-    def _add_scan_point_at_position(self, x, y):
+    def _add_scan_point_at_position(self, x, y, replace_existing=False):
         """
-        Add a scan point with simulated data at the specified position
+        Add a scan point with live or simulated data at the specified position
         
         Args:
-            x, y (int): Map coordinates  
+            x, y (int): Map coordinates
+            replace_existing (bool): If True, remove existing scan point at this location first
         """
-        # Generate simulated scan data
-        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
+        # Remove existing scan point if replacing
+        if replace_existing:
+            existing_point = self._get_scan_point_at_position(x, y, tolerance=5)
+            if existing_point:
+                self.current_floor.scan_points.remove(existing_point)
         
-        # Create scan point
-        scan_point = ScanPoint(
-            map_x=x,
-            map_y=y,
-            timestamp=datetime.datetime.now(),
-            ap_list=simulated_ap_data
-        )
+        self.status_label.setText(self.i18n.get_string("scanning_at_location_status").format(x=x, y=y))
         
-        # Add to current floor
-        self.current_floor.scan_points.append(scan_point)
-        
-        # Update heatmap if enabled (new scan data available)
-        if self.heatmap_enabled:
-            self._update_heatmap()
-        
-        # Re-render map
-        self._render_map()
-        
-        # Emit signal
-        self.scan_point_added.emit(scan_point)
-        
-        # Update status
-        self.status_label.setText(f"Scan point added at ({x}, {y}) - {len(simulated_ap_data)} APs detected")
-        
-        if self.debug_mode:
-            print(f"DEBUG: Added scan point at ({x}, {y}) with {len(simulated_ap_data)} APs")
+        try:
+            if self.use_live_scanning:
+                # Perform live WiFi scan
+                print(f"Performing live WiFi scan at ({x}, {y})...")
+                ap_data_list = self.wifi_scanner.scan(timeout=30)
+                scan_type = "Live"
+            else:
+                # Fall back to simulated data
+                print(f"WiFi scanning not available, using simulated data at ({x}, {y})")
+                ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
+                scan_type = "Simulated"
+            
+            # Create scan point
+            scan_point = ScanPoint(
+                map_x=x,
+                map_y=y,
+                timestamp=datetime.datetime.now(),
+                ap_list=ap_data_list
+            )
+            
+            # Add to current floor
+            self.current_floor.scan_points.append(scan_point)
+            
+            # Update heatmap if enabled (new scan data available)
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            
+            # Re-render map
+            self._render_map()
+            
+            # Emit signal
+            self.scan_point_added.emit(scan_point)
+            
+            # Update status
+            self.status_label.setText(self.i18n.get_string("scan_completed_status").format(scan_type=scan_type, x=x, y=y, count=len(ap_data_list)))
+            
+            if self.debug_mode:
+                print(f"DEBUG: Added {scan_type.lower()} scan point at ({x}, {y}) with {len(ap_data_list)} APs")
+                
+        except WiFiScanError as e:
+            # Handle scan errors gracefully
+            error_msg = f"WiFi scan failed at ({x}, {y}): {e}"
+            print(f"ERROR: {error_msg}")
+            self.status_label.setText(self.i18n.get_string("scan_failed_status").format(x=x, y=y))
+            
+            # Fall back to simulated data
+            ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
+            
+            scan_point = ScanPoint(
+                map_x=x,
+                map_y=y,
+                timestamp=datetime.datetime.now(),
+                ap_list=ap_data_list
+            )
+            
+            self.current_floor.scan_points.append(scan_point)
+            
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            self._render_map()
+            self.scan_point_added.emit(scan_point)
+            
+            # Show error to user
+            QMessageBox.warning(self, "WiFi Scan Error", 
+                              f"Live WiFi scanning failed:\n{e}\n\nFalling back to simulated data.")
+        except Exception as e:
+            # Handle unexpected errors
+            error_msg = f"Unexpected error during scan at ({x}, {y}): {e}"
+            print(f"ERROR: {error_msg}")
+            self.status_label.setText(self.i18n.get_string("scan_error_status").format(x=x, y=y))
+            QMessageBox.critical(self, "Scan Error", error_msg)
     
     def set_placement_mode(self, mode):
         """
@@ -613,8 +716,9 @@ class InteractiveMapView(QWidget):
             mode (str): "ap" or "scan_point" (for compatibility)
         """
         self.placement_mode = mode  # Keep for legacy compatibility
-        # All placement now happens via right-click context menu
-        self.status_label.setText("🔵 Blue APs = Scanned • 🟠 Orange APs = Need scanning • Right-click to place/scan • Drag APs to move")
+        # Show scanning status in the label
+        scan_status = "Live WiFi" if self.use_live_scanning else "Simulated"
+        self.status_label.setText(self.i18n.get_string("status_legend").format(scan_status=scan_status))
         
         if self.debug_mode:
             print(f"DEBUG: Placement mode set to: {mode} (but all placement now via right-click)")
@@ -624,7 +728,7 @@ class InteractiveMapView(QWidget):
         if self.current_floor:
             self.current_floor.placed_aps.clear()
             self._render_map()
-            self.status_label.setText("All APs cleared")
+            self.status_label.setText(self.i18n.get_string("all_aps_cleared_status"))
     
     def clear_all_scan_points(self):
         """Remove all scan points from the current floor"""
@@ -634,96 +738,125 @@ class InteractiveMapView(QWidget):
             if self.heatmap_enabled:
                 self._update_heatmap()
             self._render_map()
-            self.status_label.setText("All scan points cleared")
+            self.status_label.setText(self.i18n.get_string("all_scan_points_cleared_status"))
     
-    def _scan_at_all_aps(self):
+    
+    def _clear_all_scan_data(self):
         """
-        Add scan points at all placed AP locations with simulated data
+        Clear ALL scan data: removes all scan points and clears AP scan data (making APs orange)
         """
-        if not self.current_floor or not self.current_floor.placed_aps:
-            return
+        cleared_scan_points = len(self.current_floor.scan_points) if self.current_floor.scan_points else 0
+        cleared_ap_data = 0
         
-        added_count = 0
-        for ap in self.current_floor.placed_aps:
-            # Generate simulated scan data for this location
-            simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(4, 10), scan_x=ap.map_x, scan_y=ap.map_y)
+        # Clear all scan points
+        if self.current_floor.scan_points:
+            self.current_floor.scan_points.clear()
+        
+        # Clear scan data from all APs
+        if self.current_floor.placed_aps:
+            for ap in self.current_floor.placed_aps:
+                if ap.associated_scan_data:
+                    ap.associated_scan_data.clear()
+                    ap.timestamp_last_scan = None
+                    cleared_ap_data += 1
+        
+        # Update heatmap if enabled (all scan data cleared)
+        if self.heatmap_enabled:
+            self._update_heatmap()
+        
+        # Re-render map
+        self._render_map()
+        
+        # Update status
+        parts = []
+        if cleared_scan_points > 0:
+            parts.append(f"{cleared_scan_points} scan points")
+        if cleared_ap_data > 0:
+            parts.append(f"scan data from {cleared_ap_data} APs")
+        
+        if parts:
+            self.status_label.setText(self.i18n.get_string("cleared_scan_data_status").format(parts=' and '.join(parts)))
+        else:
+            self.status_label.setText(self.i18n.get_string("no_scan_data_to_clear_status"))
+        
+        if self.debug_mode:
+            print(f"DEBUG: Cleared {cleared_scan_points} scan points and scan data from {cleared_ap_data} APs")
+    
+    def _scan_at_ap(self, ap):
+        """
+        Add a scan point at a specific AP location with live or simulated data
+        
+        Args:
+            ap (PlacedAP): The AP to scan at
+        """
+        self.status_label.setText(self.i18n.get_string("scanning_at_ap_status").format(ap_name=ap.name))
+        
+        try:
+            if self.use_live_scanning:
+                # Perform live WiFi scan
+                print(f"Performing live WiFi scan at AP '{ap.name}' ({ap.map_x}, {ap.map_y})...")
+                ap_data_list = self.wifi_scanner.scan(timeout=30)
+                scan_type = "Live"
+            else:
+                # Fall back to simulated data
+                print(f"WiFi scanning not available, using simulated data for AP '{ap.name}'")
+                ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
+                scan_type = "Simulated"
             
             # Create scan point at AP location
             scan_point = ScanPoint(
                 map_x=ap.map_x,
                 map_y=ap.map_y,
                 timestamp=datetime.datetime.now(),
-                ap_list=simulated_ap_data
+                ap_list=ap_data_list
             )
             
             self.current_floor.scan_points.append(scan_point)
-            added_count += 1
-        
-        # Update heatmap if enabled (new scan data available)
-        if self.heatmap_enabled:
-            self._update_heatmap()
-        
-        # Re-render map
-        self._render_map()
-        
-        # Update status
-        self.status_label.setText(f"Added scan points at {added_count} AP locations")
-        
-        if self.debug_mode:
-            print(f"DEBUG: Added scan points at {added_count} AP locations")
-    
-    def _clear_all_ap_scan_data(self):
-        """
-        Clear associated scan data from all APs while keeping the AP placements
-        """
-        if not self.current_floor or not self.current_floor.placed_aps:
-            return
-        
-        cleared_count = 0
-        for ap in self.current_floor.placed_aps:
-            if ap.associated_scan_data:
-                ap.associated_scan_data.clear()
-                ap.timestamp_last_scan = None
-                cleared_count += 1
-        
-        # Update status
-        self.status_label.setText(f"Cleared scan data from {cleared_count} APs (keeping AP placements)")
-        
-        if self.debug_mode:
-            print(f"DEBUG: Cleared scan data from {cleared_count} APs while keeping placements")
-    
-    def _scan_at_ap(self, ap):
-        """
-        Add a scan point at a specific AP location with simulated data
-        
-        Args:
-            ap (PlacedAP): The AP to scan at
-        """
-        # Generate simulated scan data for this location  
-        simulated_ap_data = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
-        
-        # Create scan point at AP location
-        scan_point = ScanPoint(
-            map_x=ap.map_x,
-            map_y=ap.map_y,
-            timestamp=datetime.datetime.now(),
-            ap_list=simulated_ap_data
-        )
-        
-        self.current_floor.scan_points.append(scan_point)
-        
-        # Update heatmap if enabled (new scan data available)
-        if self.heatmap_enabled:
-            self._update_heatmap()
-        
-        # Re-render map
-        self._render_map()
-        
-        # Update status
-        self.status_label.setText(f"Scan completed at AP '{ap.name}' - {len(simulated_ap_data)} networks detected")
-        
-        if self.debug_mode:
-            print(f"DEBUG: Scan point added at AP '{ap.name}' location with {len(simulated_ap_data)} APs")
+            
+            # Update heatmap if enabled (new scan data available)
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            
+            # Re-render map
+            self._render_map()
+            
+            # Update status
+            self.status_label.setText(self.i18n.get_string("ap_scan_completed_status").format(scan_type=scan_type, ap_name=ap.name, count=len(ap_data_list)))
+            
+            if self.debug_mode:
+                print(f"DEBUG: Added {scan_type.lower()} scan point at AP '{ap.name}' ({ap.map_x}, {ap.map_y}) with {len(ap_data_list)} APs")
+                
+        except WiFiScanError as e:
+            # Handle scan errors gracefully
+            error_msg = f"WiFi scan failed at AP '{ap.name}': {e}"
+            print(f"ERROR: {error_msg}")
+            self.status_label.setText(self.i18n.get_string("ap_scan_failed_status").format(ap_name=ap.name))
+            
+            # Fall back to simulated data
+            ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
+            
+            scan_point = ScanPoint(
+                map_x=ap.map_x,
+                map_y=ap.map_y,
+                timestamp=datetime.datetime.now(),
+                ap_list=ap_data_list
+            )
+            
+            self.current_floor.scan_points.append(scan_point)
+            
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            self._render_map()
+            
+            # Show error to user
+            QMessageBox.warning(self, "WiFi Scan Error", 
+                              f"Live WiFi scanning failed:\n{e}\n\nFalling back to simulated data.")
+        except Exception as e:
+            # Handle unexpected errors
+            error_msg = f"Unexpected error during scan at AP '{ap.name}': {e}"
+            print(f"ERROR: {error_msg}")
+            self.status_label.setText(self.i18n.get_string("ap_scan_error_status").format(ap_name=ap.name))
+            QMessageBox.critical(self, "Scan Error", error_msg)
     
     def _clear_ap_scan_data(self, ap):
         """
@@ -736,10 +869,71 @@ class InteractiveMapView(QWidget):
         ap.timestamp_last_scan = None
         
         # Update status
-        self.status_label.setText(f"Cleared scan data from AP '{ap.name}' (keeping AP placement)")
+        self.status_label.setText(self.i18n.get_string("ap_scan_data_cleared_status").format(ap_name=ap.name))
         
         if self.debug_mode:
             print(f"DEBUG: Cleared scan data from AP '{ap.name}' while keeping placement")
+    
+    def _remove_scan_point(self, scan_point):
+        """
+        Remove a specific scan point from the floor
+        
+        Args:
+            scan_point (ScanPoint): The scan point to remove
+        """
+        if scan_point in self.current_floor.scan_points:
+            self.current_floor.scan_points.remove(scan_point)
+            
+            # Update heatmap if enabled (scan data removed)
+            if self.heatmap_enabled:
+                self._update_heatmap()
+            
+            # Re-render map
+            self._render_map()
+            
+            networks_count = len(scan_point.ap_list) if scan_point.ap_list else 0
+            self.status_label.setText(self.i18n.get_string("removed_scan_point_status").format(count=networks_count))
+            
+            if self.debug_mode:
+                print(f"DEBUG: Removed scan point at ({scan_point.map_x}, {scan_point.map_y}) with {networks_count} networks")
+    
+    def _remove_all_aps(self):
+        """
+        Remove all APs and clear all scan data (comprehensive cleanup)
+        """
+        if not self.current_floor:
+            return
+            
+        ap_count = len(self.current_floor.placed_aps) if self.current_floor.placed_aps else 0
+        scan_point_count = len(self.current_floor.scan_points) if self.current_floor.scan_points else 0
+        
+        # Clear everything
+        if self.current_floor.placed_aps:
+            self.current_floor.placed_aps.clear()
+        if self.current_floor.scan_points:
+            self.current_floor.scan_points.clear()
+        
+        # Update heatmap if enabled (all data cleared)
+        if self.heatmap_enabled:
+            self._update_heatmap()
+        
+        # Re-render map
+        self._render_map()
+        
+        # Update status
+        parts = []
+        if ap_count > 0:
+            parts.append(f"{ap_count} APs")
+        if scan_point_count > 0:
+            parts.append(f"{scan_point_count} scan points")
+        
+        if parts:
+            self.status_label.setText(self.i18n.get_string("removed_items_status").format(parts=' and '.join(parts)))
+        else:
+            self.status_label.setText(self.i18n.get_string("no_aps_to_remove_status"))
+        
+        if self.debug_mode:
+            print(f"DEBUG: Removed {ap_count} APs and {scan_point_count} scan points - full cleanup")
     
     def _offer_immediate_scan(self, ap):
         """
@@ -761,7 +955,7 @@ class InteractiveMapView(QWidget):
             self._scan_at_ap(ap)
         else:
             # Update status to show AP was placed but not scanned
-            self.status_label.setText(f"AP '{ap.name}' placed at ({int(ap.map_x)}, {int(ap.map_y)}) - no scan performed")
+            self.status_label.setText(self.i18n.get_string("ap_placed_no_scan_status").format(ap_name=ap.name, x=int(ap.map_x), y=int(ap.map_y)))
     
     def _has_scan_data(self, ap):
         """
@@ -784,3 +978,133 @@ class InteractiveMapView(QWidget):
                 return True
         
         return False
+    
+    def _heatmap_progress_callback(self, message_key):
+        """Callback for heatmap generation progress updates"""
+        self.status_label.setText(self.i18n.get_string(message_key))
+        QApplication.processEvents()  # Force UI update
+    
+    def _rescan_scan_point(self, scan_point):
+        """Rescan at an existing scan point location"""
+        if not scan_point:
+            return
+            
+        # Perform new scan at the scan point location
+        self._add_scan_point_at_position(scan_point.map_x, scan_point.map_y, replace_existing=True)
+    
+    def _show_ap_scan_data(self, ap):
+        """Show scrollable scan data dialog for an AP with all measurements"""
+        if not ap:
+            return
+            
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Scan Data - {ap.name}")
+        dialog.setModal(True)
+        dialog.resize(500, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Header info
+        header_label = QLabel(f"AP: {ap.name}\nLocation: ({int(ap.map_x)}, {int(ap.map_y)})")
+        header_label.setStyleSheet("font-weight: bold; padding: 10px;")
+        layout.addWidget(header_label)
+        
+        # Scrollable area
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        
+        # Find scan points near this AP
+        nearby_scan_points = []
+        tolerance = 50  # pixels
+        
+        for scan_point in self.current_floor.scan_points:
+            distance = ((scan_point.map_x - ap.map_x) ** 2 + (scan_point.map_y - ap.map_y) ** 2) ** 0.5
+            if distance <= tolerance:
+                nearby_scan_points.append(scan_point)
+        
+        if nearby_scan_points:
+            # Show ALL measurements from ALL nearby scan points
+            for i, scan_point in enumerate(nearby_scan_points):
+                # Scan point header
+                sp_label = QLabel(f"Scan Point {i+1} - Location: ({int(scan_point.map_x)}, {int(scan_point.map_y)})")
+                sp_label.setStyleSheet("background-color: #f0f0f0; padding: 5px; margin-top: 5px; font-weight: bold;")
+                scroll_layout.addWidget(sp_label)
+                
+                # All networks from this scan point
+                sorted_networks = sorted(scan_point.ap_list, key=lambda x: x.signal_strength, reverse=True)
+                for network in sorted_networks:
+                    ssid = network.ssid if network.ssid else "{Hidden}"
+                    network_info = f"• {ssid}\n  BSSID: {network.bssid}\n  RSSI: {network.signal_strength} dBm\n  Band: {network.band}"
+                    
+                    net_label = QLabel(network_info)
+                    net_label.setStyleSheet("padding: 5px; margin-left: 10px; border-left: 2px solid #ccc;")
+                    net_label.setWordWrap(True)
+                    scroll_layout.addWidget(net_label)
+        else:
+            no_data_label = QLabel("No scan data available near this AP")
+            no_data_label.setStyleSheet("padding: 20px; font-style: italic; color: #666;")
+            scroll_layout.addWidget(no_data_label)
+        
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        
+        dialog.exec_()
+    
+    def _show_scan_point_data(self, scan_point):
+        """Show scrollable scan data dialog for a scan point"""
+        if not scan_point:
+            return
+            
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Scan Point Data")
+        dialog.setModal(True)
+        dialog.resize(500, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Header info
+        header_label = QLabel(f"Scan Point\nLocation: ({int(scan_point.map_x)}, {int(scan_point.map_y)})\nNetworks detected: {len(scan_point.ap_list) if scan_point.ap_list else 0}")
+        header_label.setStyleSheet("font-weight: bold; padding: 10px;")
+        layout.addWidget(header_label)
+        
+        # Scrollable area
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        
+        if scan_point.ap_list:
+            # Sort networks by signal strength (strongest first)
+            sorted_networks = sorted(scan_point.ap_list, key=lambda x: x.signal_strength, reverse=True)
+            
+            for network in sorted_networks:
+                ssid = network.ssid if network.ssid else "{Hidden}"
+                network_info = f"• {ssid}\n  BSSID: {network.bssid}\n  RSSI: {network.signal_strength} dBm\n  Band: {network.band}"
+                
+                net_label = QLabel(network_info)
+                net_label.setStyleSheet("padding: 8px; margin: 2px; border: 1px solid #ddd; border-radius: 4px; background-color: #fafafa;")
+                net_label.setWordWrap(True)
+                scroll_layout.addWidget(net_label)
+        else:
+            no_data_label = QLabel("No networks detected at this scan point")
+            no_data_label.setStyleSheet("padding: 20px; font-style: italic; color: #666;")
+            scroll_layout.addWidget(no_data_label)
+        
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        
+        dialog.exec_()

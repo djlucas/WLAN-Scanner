@@ -14,6 +14,7 @@
 
 import sys
 import os
+import platform
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 # Ensure the 'app' directory is in the Python path
@@ -66,10 +67,59 @@ def main():
     # Check for initial setup completion (e.g., Poppler path)
     # This logic can be expanded as more mandatory settings are identified
     poppler_path = config_manager.get("poppler_path")
+    
+    # Auto-detect poppler if not configured
     if not poppler_path or not os.path.exists(poppler_path):
-        # If Poppler path is not set, open preferences dialog
-        # This will be handled by the MainWindow's initial check
-        pass # MainWindow will prompt if needed
+        detected_path = None
+        
+        if platform.system() == "Windows":
+            # Check for poppler/ subdirectory in project root
+            project_root = os.path.dirname(__file__)
+            
+            # First check simple poppler/Library/bin structure
+            local_poppler_path = os.path.join(project_root, "poppler", "Library", "bin")
+            if os.path.exists(local_poppler_path) and os.path.exists(os.path.join(local_poppler_path, "pdftoppm.exe")):
+                detected_path = local_poppler_path
+            else:
+                # Check for versioned poppler directories: poppler/poppler-*/Library/bin
+                poppler_base_dir = os.path.join(project_root, "poppler")
+                if os.path.exists(poppler_base_dir):
+                    import glob
+                    versioned_dirs = glob.glob(os.path.join(poppler_base_dir, "poppler-*", "Library", "bin"))
+                    for versioned_path in versioned_dirs:
+                        if os.path.exists(os.path.join(versioned_path, "pdftoppm.exe")):
+                            detected_path = versioned_path
+                            break
+                
+        elif platform.system() == "Linux":
+            # Check common system paths for pdftoppm
+            common_paths = ["/usr/bin", "/usr/local/bin", "/bin"]
+            for path in common_paths:
+                if os.path.exists(os.path.join(path, "pdftoppm")):
+                    detected_path = path
+                    break
+                    
+        elif platform.system() == "Darwin":  # macOS
+            # Check common Homebrew paths
+            homebrew_paths = [
+                "/opt/homebrew/bin",  # Apple Silicon Macs
+                "/usr/local/bin",     # Intel Macs
+                "/usr/bin"            # System default
+            ]
+            for path in homebrew_paths:
+                if os.path.exists(os.path.join(path, "pdftoppm")):
+                    detected_path = path
+                    break
+        
+        if detected_path:
+            # Auto-configure the detected poppler path
+            config_manager.set("poppler_path", detected_path)
+            poppler_path = detected_path
+            print(f"Auto-detected Poppler at: {detected_path}")
+    
+    if not poppler_path or not os.path.exists(poppler_path):
+        # If Poppler path is still not set, MainWindow will prompt if needed
+        pass
 
     # Create and show the main window, passing the debug mode
     main_window = MainWindow(config_manager, i18n_manager, debug_mode=debug_mode)

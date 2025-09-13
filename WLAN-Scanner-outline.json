@@ -352,6 +352,31 @@
         ]
       }
     ],
+    "empirical_observations": {
+      "signal_propagation": {
+        "date_collected": "2025-09-12",
+        "environment": "Indoor office, 20-22ft measurements with LOS and single closed door",
+        "vendor": "TP-Link (OUI: 9C-A2-F4)",
+        "path_loss_model": {
+          "2_4_ghz_los": "~0.5 dB per foot (20ft: 9-10 dB loss)",
+          "5_ghz_los": "~0.6 dB per foot (20ft: 11-13 dB loss)", 
+          "door_penalty": "~3-4 dB additional attenuation (22ft + door: 14 dB total)",
+          "baseline_power": "-22 dBm (2.4GHz), -28 dBm (5GHz) at AP location"
+        }
+      },
+      "bssid_allocation_patterns": {
+        "date_observed": "2025-09-12",
+        "tp_link": {
+          "oui_pattern": "9C-A2-F4",
+          "hardware_base_mac": "9C:A2:F4:4C:AA:8E",
+          "ssid_differentiation": "First octet varies by virtual SSID (9C=WLANS, A6={Hidden}, A2=WLANS-IOT, AA=WLANS-Guest)",
+          "band_differentiation": "Last octet increments for different radio (8E=2.4GHz, 8F=5GHz)",
+          "pattern": "Virtual BSSIDs derived from base MAC with first/last octet modifications",
+          "notes": "Pattern observed on single vendor - need additional vendor data for validation"
+        },
+        "pending_data": "Additional vendor BSSID patterns expected Monday for comparison analysis"
+      }
+    },
     "future_v2_roadmap": [
       {
         "priority": "Future V2.1",
