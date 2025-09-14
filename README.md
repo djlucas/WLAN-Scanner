@@ -91,28 +91,48 @@ Before running the application, ensure you have the following installed:
 -   **NumPy**: Required for heatmap mathematical operations and signal processing.
 -   **SciPy**: Used for advanced interpolation and signal strength calculations.
 
-You can install all Python dependencies using `pip` with the provided `requirements.txt` file:
-
-```bash
-pip install -r requirements.txt
-```
-
 ## 🚀 Installation and Setup
 
-1.  **Clone the repository**:
+1.  **Install Python 3.x**:
+
+    **Windows Users**:
+    - The recommended way to install Python is through the **[Microsoft Store](https://apps.microsoft.com/store/detail/python-310/9PJPW5LDXLZ5)**. This provides the simplest installation and setup.
+    - Alternatively, you can use the installer from the [official Python website](https.www.python.org/downloads/windows/). If you use this method, ensure you **check the box that says "Add Python to PATH"** during installation.
+  
+    **Linux Users**:
+    - Python 3 is usually pre-installed. You can check by opening a terminal and running `python3 --version`.
+    - If it's not installed, use your package manager:
+      - **Ubuntu/Debian**: `sudo apt update && sudo apt install python3 python3-pip`
+      - **Fedora/CentOS**: `sudo dnf install python3 python3-pip`
+      - **SUSE/openSUSE**: `sudo zypper install python3 python3-pip`
+
+    **macOS Users**:
+    - We recommend installing Python via [Homebrew](https://brew.sh/). If you have Homebrew installed, open a terminal and run:
+      ```bash
+      brew install python
+      ```
+
+2.  **Clone the repository**:
 
     ```bash
     git clone [https://github.com/djlucas/WLAN-Scanner.git]
     cd WLAN-Scanner
     ```
 
-2.  **Install dependencies**:
+3.  **Install dependencies**:
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+    ** Windows and mac OS users**:
+      ```
+      pip install -r requirements.txt
+      ```
 
-3.  **Configure Poppler**:
+    ** Linux Users**:
+       - Review the contents of requiremnts.txt and install using your package manager.
+         - Ubuntu/Debian: `sudo apt update && sudo apt install python3-pyqt5 python3-numpy python3-scipy `
+         - Fedora/CentOS: `sudo dnf install python3-qt5 python3-numpy python3-scipy`
+         - **SUSE/openSUSE**: `sudo zypper install python3-PyQt5 python3-numpy python3-scipy`
+
+4.  **Configure Poppler**:
     The application needs the `poppler` binaries for PDF floor plan processing.
     
     **Windows Users**: Download and extract Poppler from:
@@ -125,14 +145,16 @@ pip install -r requirements.txt
     Alternatively, extract to any location and set the path manually in Preferences.
     
     **Linux Users**: Install poppler through your package manager:
-    - Ubuntu/Debian: `sudo apt-get install poppler-utils`
+    - Ubuntu/Debian: `sudo apt update && sudo apt install poppler-utils`
+    - Fedora/CentOS: `sudo dnf install poppler-utils`
+    - **SUSE/openSUSE**: `sudo zypper install poppler-tools`
     - The application will automatically detect poppler if installed in system paths.
     
     **macOS Users**: Install poppler through Homebrew:
     - `brew install poppler`
     - The application will automatically detect poppler in Homebrew paths (`/opt/homebrew/bin` for Apple Silicon or `/usr/local/bin` for Intel Macs).
 
-4.  **Scan Scripts**:
+5.  **Scan Scripts**:
     The platform-specific scan scripts (`get-wlans.ps1` and `get-wlans.sh`) are included in the `scripts/` directory.
 
 ## ▶️ Usage
