@@ -166,6 +166,13 @@ class FloorImportDialog(QDialog):
         control_buttons_layout.addWidget(self.cancel_button)
         main_layout.addLayout(control_buttons_layout)
 
+        # Status message label
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("QLabel { color: #666; font-style: italic; }")
+        self.status_label.setVisible(False) # Hidden by default
+        main_layout.addWidget(self.status_label)
+
         # Progress bar for PDF conversion
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setAlignment(Qt.AlignCenter)
@@ -328,6 +335,10 @@ class FloorImportDialog(QDialog):
                     break
         if self.debug_mode:
             print("DEBUG: Image displayed in graphics view.")
+
+        # Show instruction message to guide user to crop the image
+        self.status_label.setText(self.i18n.get_string("crop_image_instruction_message"))
+        self.status_label.setVisible(True)
 
 
     def _convert_pdf_to_image(self, pdf_path):
@@ -877,6 +888,9 @@ class FloorImportDialog(QDialog):
         self.reset_crop_button.setEnabled(True) # Can reset to initial loaded
         self.next_button.setEnabled(True) # Ready for next step (scale lines)
 
+        # Hide the crop instruction message since cropping is complete
+        self.status_label.setVisible(False)
+
         if self.debug_mode:
             print(f"DEBUG: Image cropped and resized to 1920x1080. New current_display_pixmap size: {self.current_display_pixmap.size()}")
 
@@ -1002,8 +1016,8 @@ if __name__ == '__main__':
         with open(en_us_path, 'w', encoding='utf-8') as f:
             f.write("floor_import_title=Import Floor Plan\n")
             f.write("file_selection_group=File Selection\n")
-            f.write("floor_number_label=Floor Number:\n")
-            f.write("floor_number_placeholder=e.g., 1, Ground Floor, Basement\n")
+            f.write("floor_number_label=Floor Description:\n")
+            f.write("floor_number_placeholder=e.g., Ground Floor, 2nd Floor, Basement, Mezzanine\n")
             f.write("image_file_label=Image/PDF File:\n")
             f.write("browse_button=Browse...\n")
             f.write("select_image_file_title=Select Floor Plan Image or PDF\n")

@@ -9,6 +9,7 @@ A desktop application built with Python and PyQt5 for conducting Wi-Fi site surv
 The application now features complete interactive survey functionality with project persistence, live WiFi scanning, and advanced heatmap visualization. Professional WiFi site survey workflow is fully operational with real-time signal analysis and optimized performance.
 
 ### ✅ **Recently Completed Features**
+- **✨ Comprehensive AP Properties**: Full asset management with manufacturer, model, serial number, ethernet MAC address, and asset tag tracking
 - **✨ Live WiFi Scanning**: Real WiFi network scanning with platform-specific scripts (Linux/Windows)
 - **✨ Advanced Heatmap Engine**: Complete rewrite using AP source location estimation and signal propagation modeling
 - **✨ Empirical Signal Analysis**: Uses real scan measurements to estimate AP locations and generate accurate coverage maps
@@ -32,7 +33,7 @@ The application now features complete interactive survey functionality with proj
 - **Data Models**: Complete object model for projects, floors, APs, and scan points
 - **User Interface**: Full menu system, dialogs, and preferences management
 - **Interactive Map Interface**: Right-click context menus for AP placement and scanning
-- **AP Management**: Visual AP placement with drag-and-drop repositioning
+- **AP Management**: Visual AP placement with drag-and-drop repositioning and comprehensive property tracking (manufacturer, model, serial number, ethernet MAC, asset tag)
 - **Multi-Floor Navigation**: Floor selector dropdown for projects with multiple floors
 - **Real-Time WiFi Scanning**: Live network detection with platform-specific optimization
 - **Signal Strength Heatmaps**: Visual coverage maps with SSID-based network selection and progress tracking
@@ -64,7 +65,7 @@ The application now features complete interactive survey functionality with proj
 - **🔵 Blue APs** = Have scan data (surveyed)
 - **🟠 Orange APs** = Need scanning (newly placed or data cleared)
 - **Right-click empty space** → "Place Access Point Here" 
-- **Right-click existing AP** → Smart context menu (Edit, Scan/Rescan, Clear data, Remove)
+- **Right-click existing AP** → Smart context menu (Edit Properties, Scan/Rescan, Clear data, Remove)
 - **Left-click & drag** → Move APs to new positions
 
 #### **Scanning Workflow:**

@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QAction, QMessageBox,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QDialog, QComboBox, QFileDialog, QActionGroup, QScrollArea
 )
-from PyQt5.QtCore import Qt, QTemporaryDir
+from PyQt5.QtCore import Qt, QTemporaryDir, QTimer
 from PyQt5.QtGui import QPixmap
 
 # Local imports from the 'app' package using relative imports
@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         self.map_view.ap_placed.connect(self._on_ap_placed)
         self.map_view.scan_point_added.connect(self._on_scan_point_added)
         self.map_view.status_message.connect(self._on_status_update)
+        self.map_view.request_instruction_update.connect(self._show_next_user_instruction)
 
         # Wrap map view in a scroll area
         self.scroll_area = QScrollArea()
@@ -296,11 +297,15 @@ class MainWindow(QMainWindow):
             print("DEBUG: Starting new project creation.")
 
         # 1. Get Site Information
+        self.status_label.setText(self.i18n.get_string("collecting_site_info_status"))
+
         # Create a new SiteInfo object for the new project
         new_site_info = SiteInfo()
         site_info_dialog = SiteInformationDialog(new_site_info, self.i18n, parent=self)
         if site_info_dialog.exec_() == QDialog.Accepted:
             # Site info collected, proceed to add first floor
+            self.status_label.setText(self.i18n.get_string("creating_project_status").format(site_name=new_site_info.site_name))
+
             self.current_project = MapProject(site_info=new_site_info)
             self.project_temp_dir = QTemporaryDir()
             self.project_modified = True  # New project needs to be saved
@@ -342,7 +347,8 @@ class MainWindow(QMainWindow):
         project, extract_dir = ProjectManager.load_project(file_path)
 
         if project is None:
-            QMessageBox.critical(self, "Error", f"Failed to load project from '{file_path}'")
+            QMessageBox.critical(self, self.i18n.get_string("error_title"),
+                                self.i18n.get_string("failed_load_project_message").format(file_path=file_path))
             if self.debug_mode:
                 print(f"DEBUG: Failed to load project from {file_path}")
             return
@@ -378,7 +384,8 @@ class MainWindow(QMainWindow):
         Saves the current project to its existing file, or prompts for location if new.
         """
         if self.current_project is None:
-            QMessageBox.warning(self, "No Project", "No project is currently loaded to save.")
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_project_to_save_message"))
             if self.debug_mode:
                 print("DEBUG: Cannot save - no project loaded.")
             return
@@ -405,7 +412,8 @@ class MainWindow(QMainWindow):
             if self.debug_mode:
                 print(f"DEBUG: Project saved successfully to {self.current_project_file_path}")
         else:
-            QMessageBox.critical(self, "Save Error", f"Failed to save project to '{self.current_project_file_path}'")
+            QMessageBox.critical(self, self.i18n.get_string("save_error_title"),
+                                self.i18n.get_string("failed_save_project_message").format(file_path=self.current_project_file_path))
             if self.debug_mode:
                 print(f"DEBUG: Failed to save project to {self.current_project_file_path}")
 
@@ -414,7 +422,8 @@ class MainWindow(QMainWindow):
         Saves the current project to a new location.
         """
         if self.current_project is None:
-            QMessageBox.warning(self, "No Project", "No project is currently loaded to save.")
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_project_to_save_message"))
             if self.debug_mode:
                 print("DEBUG: Cannot save as - no project loaded.")
             return
@@ -455,7 +464,8 @@ class MainWindow(QMainWindow):
             if self.debug_mode:
                 print(f"DEBUG: Project saved as {file_path}")
         else:
-            QMessageBox.critical(self, "Save Error", f"Failed to save project to '{file_path}'")
+            QMessageBox.critical(self, self.i18n.get_string("save_error_title"),
+                                self.i18n.get_string("failed_save_project_message").format(file_path=file_path))
             if self.debug_mode:
                 print(f"DEBUG: Failed to save project as {file_path}")
 
@@ -499,6 +509,12 @@ class MainWindow(QMainWindow):
                 print("ERROR: Project temporary directory is not valid.")
             return
 
+        # Update status to indicate floor import is starting
+        if is_first_floor:
+            self.status_label.setText(self.i18n.get_string("importing_first_floor_status"))
+        else:
+            self.status_label.setText(self.i18n.get_string("importing_floor_status"))
+
         dialog = FloorImportDialog(self.config_manager, self.i18n, self.project_temp_dir.path(), debug_mode=self.debug_mode, parent=self)
         if dialog.exec_() == QDialog.Accepted:
             floor_data = dialog.get_floor_data()
@@ -521,6 +537,7 @@ class MainWindow(QMainWindow):
 
                 # After adding the floor, immediately open the ScaleLineDialog
                 if new_floor.scaled_image_path and os.path.exists(new_floor.scaled_image_path):
+                    self.status_label.setText(self.i18n.get_string("setting_scale_lines_status").format(floor_description=new_floor.floor_number))
                     self._set_scale_lines_for_current_floor(is_first_floor_setup=is_first_floor)
                 else:
                     QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
@@ -633,6 +650,9 @@ class MainWindow(QMainWindow):
             current_floor.scale_line_vertical = v_line
             self._mark_project_modified()
             self.status_label.setText(self.i18n.get_string("scale_lines_set_status").format(floor_number=current_floor.floor_number))
+
+            # After a brief delay, show AP placement instruction
+            QTimer.singleShot(2000, self._show_next_user_instruction)
             if self.debug_mode:
                 print(f"DEBUG: Scale lines set for Floor {current_floor.floor_number}. H: {h_line.to_dict() if h_line else 'None'}, V: {v_line.to_dict() if v_line else 'None'}")
         else:
@@ -696,17 +716,20 @@ class MainWindow(QMainWindow):
 
     # Placeholder methods for other menu actions
     def _run_scan(self):
-        QMessageBox.information(self, self.i18n.get_string("info_title"), "Run Scan functionality not yet implemented.")
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("run_scan_not_implemented_message"))
         if self.debug_mode:
             print("DEBUG: Run Scan functionality called (not implemented).")
 
     def _configure_scan_tools(self):
-        QMessageBox.information(self, self.i18n.get_string("info_title"), "Configure Scan Tools functionality not yet implemented.")
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("configure_scan_tools_not_implemented_message"))
         if self.debug_mode:
             print("DEBUG: Configure Scan Tools functionality called (not implemented).")
 
     def _generate_pdf_report(self):
-        QMessageBox.information(self, self.i18n.get_string("info_title"), "Generate PDF Report functionality not yet implemented.")
+        QMessageBox.information(self, self.i18n.get_string("info_title"),
+                                self.i18n.get_string("generate_pdf_report_not_implemented_message"))
         if self.debug_mode:
             print("DEBUG: Generate PDF Report functionality called (not implemented).")
 
@@ -717,13 +740,15 @@ class MainWindow(QMainWindow):
         import os
 
         if self.current_project is None or not hasattr(self, 'map_view'):
-            QMessageBox.warning(self, "No Map", "Please load a project with a map to export.")
+            QMessageBox.warning(self, self.i18n.get_string("no_map_title"),
+                                self.i18n.get_string("no_project_with_map_message"))
             return
 
         # Get the current map display pixmap from the map view
         current_pixmap = self.map_view.display_pixmap
         if not current_pixmap or current_pixmap.isNull():
-            QMessageBox.warning(self, "No Map Image", "No map image available to export.")
+            QMessageBox.warning(self, self.i18n.get_string("no_map_image_title"),
+                                self.i18n.get_string("no_map_image_available_message"))
             return
 
         # Get default export location (Documents folder)
@@ -745,22 +770,26 @@ class MainWindow(QMainWindow):
                 # Save the pixmap as PNG
                 success = current_pixmap.save(file_path, "PNG")
                 if success:
-                    QMessageBox.information(self, "Export Successful", f"Map exported to:\n{file_path}")
+                    QMessageBox.information(self, self.i18n.get_string("export_successful_title"),
+                                            self.i18n.get_string("map_exported_message").format(file_path=file_path))
                     if self.debug_mode:
                         print(f"DEBUG: Map exported successfully to {file_path}")
                 else:
-                    QMessageBox.critical(self, "Export Failed", "Failed to save the map image.")
+                    QMessageBox.critical(self, self.i18n.get_string("export_failed_title"),
+                                        self.i18n.get_string("failed_save_map_image_message"))
                     if self.debug_mode:
                         print(f"DEBUG: Failed to export map to {file_path}")
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", f"Error exporting map:\n{str(e)}")
+                QMessageBox.critical(self, self.i18n.get_string("export_error_title"),
+                                    self.i18n.get_string("error_exporting_map_message").format(error=str(e)))
                 if self.debug_mode:
                     print(f"DEBUG: Export error: {e}")
 
     def _toggle_heatmap(self):
         """Toggle heatmap display on/off"""
         if self.current_project is None:
-            QMessageBox.warning(self, "No Project", "Please load a project with scan data to view heatmaps.")
+            QMessageBox.warning(self, self.i18n.get_string("no_project_title"),
+                                self.i18n.get_string("no_project_with_scan_data_message"))
             self.heatmap_toggle_action.setChecked(False)
             return
 
@@ -893,7 +922,7 @@ class MainWindow(QMainWindow):
         self.zoom_label.setText(f"{self.i18n.get_string('zoom_label')} {zoom_percent}%")
 
     def _about_dialog(self):
-        QMessageBox.information(self, self.i18n.get_string("menu_help_about"), "WLAN Scanner Application v0.1")
+        QMessageBox.information(self, self.i18n.get_string("menu_help_about"), self.i18n.get_string("about_application_message"))
         if self.debug_mode:
             print("DEBUG: About dialog called.")
 
@@ -912,6 +941,9 @@ class MainWindow(QMainWindow):
 
         # Update status
         self.status_label.setText(f"Access Point '{placed_ap.name}' placed successfully")
+
+        # After a brief delay, show next instruction
+        QTimer.singleShot(2000, self._show_next_user_instruction)
 
     def _on_scan_point_added(self, scan_point):
         """
@@ -933,6 +965,9 @@ class MainWindow(QMainWindow):
         # Update status
         ap_count = len(scan_point.ap_list)
         self.status_label.setText(f"Scan point added - {ap_count} access points detected")
+
+        # After a brief delay, show next instruction
+        QTimer.singleShot(2000, self._show_next_user_instruction)
 
     def _on_status_update(self, message):
         """Handle status message updates from map view"""
@@ -982,6 +1017,52 @@ class MainWindow(QMainWindow):
             self.project_modified = True
             self._update_window_title()
 
+    def _show_next_user_instruction(self):
+        """Shows progressive instructions to guide user through the mapping process."""
+        if not self.current_project or not self.current_project.floors:
+            return
+
+        current_floor = self.current_project.floors[self.current_project.current_floor_index]
+        placed_aps = len(current_floor.placed_aps) if current_floor.placed_aps else 0
+        scan_points = len(current_floor.scan_points) if current_floor.scan_points else 0
+
+        if placed_aps == 0:
+            # No APs placed yet - instruct user to place first AP
+            self.status_label.setText(self.i18n.get_string("place_first_ap_instruction"))
+        elif placed_aps == 1 and scan_points == 0:
+            # First AP placed but no scan data - instruct to scan at AP or place scan points
+            aps_without_data = self._count_aps_without_scan_data(current_floor)
+            if aps_without_data > 0:
+                self.status_label.setText(self.i18n.get_string("scan_at_ap_instruction"))
+            else:
+                self.status_label.setText(self.i18n.get_string("place_more_aps_instruction"))
+        else:
+            # Multiple APs or scan points exist - check status
+            aps_without_data = self._count_aps_without_scan_data(current_floor)
+            if aps_without_data > 0:
+                self.status_label.setText(self.i18n.get_string("aps_need_scan_data_instruction").format(count=aps_without_data))
+            else:
+                self.status_label.setText(self.i18n.get_string("add_more_aps_or_scan_points_instruction"))
+
+    def _count_aps_without_scan_data(self, floor):
+        """Count APs that don't have scan data associated with them."""
+        if not floor.placed_aps:
+            return 0
+
+        count = 0
+        for ap in floor.placed_aps:
+            # Check if there's a scan point at exactly this AP location
+            has_scan_data = False
+            if floor.scan_points:
+                for scan_point in floor.scan_points:
+                    # Scan data exists if coordinates match exactly
+                    if scan_point.map_x == ap.map_x and scan_point.map_y == ap.map_y:
+                        has_scan_data = True
+                        break
+            if not has_scan_data:
+                count += 1
+        return count
+
 # --- For standalone testing of the dialog (optional) ---
 if __name__ == '__main__':
     # Dummy ConfigManager and I18nManager for standalone testing
@@ -1009,165 +1090,15 @@ if __name__ == '__main__':
     i18n_dir_for_test = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'i18n')
     dummy_i18n = DummyI18nManager(i18n_dir=i18n_dir_for_test)
 
-    # Create dummy i18n directory and files for testing (if they don't exist)
+    # Ensure i18n directory exists for testing
     os.makedirs(i18n_dir_for_test, exist_ok=True)
+
+    # Check if translation file exists - if not, the I18nManager will handle the fallback
     en_us_path = os.path.join(i18n_dir_for_test, 'en_US.txt')
     if not os.path.exists(en_us_path):
-        with open(en_us_path, 'w', encoding='utf-8') as f:
-            f.write("app_title_placeholder=WLAN Scanner Application\n")
-            f.write("welcome_message_placeholder=Welcome to the WLAN Scanner!\n")
-            f.write("initial_setup_title=Initial Setup\n")
-            f.write("initial_setup_complete_message=Preferences saved. Application will now start.\n")
-            f.write("initial_setup_warning_title=Setup Incomplete\n")
-            f.write("initial_setup_cancel_message=Initial setup was cancelled. Some features may not work correctly.\n")
-            f.write("preferences_title=Preferences\n")
-            f.write("preferences_paths_group=Paths Configuration\n")
-            f.write("poppler_path_label=Poppler Binaries Path:\n")
-            f.write("browse_button=Browse...\n")
-            f.write("preferences_general_group=General Settings\n")
-            f.write("language_label=Language:\n")
-            f.write("measurement_system_label=Measurement System:\n")
-            f.write("imperial_system=Imperial\n")
-            f.write("metric_system=Metric\n")
-            f.write("save_button=Save\n")
-            f.write("cancel_button=Cancel\n")
-            f.write("select_directory_title=Select Directory\n")
-            f.write("site_info_title=Site Information\n")
-            f.write("site_name_label=*Site Name (Mandatory):\n")
-            f.write("site_name_placeholder=Enter site name\n")
-            f.write("contact_label=Contact Person:\n")
-            f.write("contact_placeholder=Enter contact person's name\n")
-            f.write("telephone_label=Telephone Number:\n")
-            f.write("telephone_placeholder=Enter telephone number\n")
-            f.write("street_label=Street Address:\n")
-            f.write("street_placeholder=Enter street address\n")
-            f.write("city_label=City:\n")
-            f.write("city_placeholder=Enter city\n")
-            f.write("state_province_label=State/Province:\n")
-            f.write("state_province_placeholder=Enter state or province\n")
-            f.write("postal_code_label=Postal Code:\n")
-            f.write("postal_code_placeholder=Enter postal code\n")
-            f.write("country_label=Country:\n")
-            f.write("country_placeholder=Enter country\n")
-            f.write("ok_button=OK\n")
-            f.write("validation_error_title=Validation Error\n")
-            f.write("site_name_mandatory_message=Site Name is a mandatory field.\n")
-            f.write("default_measurement_system=Imperial\n")
-            f.write("no_project_loaded_message=No project loaded. Start a new project or open an existing one.\n")
-            f.write("project_loaded_message=Project '{site_name}' loaded.\n")
-            f.write("ready_status=Ready\n")
-            f.write("menu_file=File\n")
-            f.write("menu_file_new_project=New Project...\n")
-            f.write("menu_file_open_project=Open Project...\n")
-            f.write("menu_file_save_project=Save Project\n")
-            f.write("menu_file_save_project_as=Save Project As...\n")
-            f.write("menu_file_exit=Exit\n")
-            f.write("menu_edit=Edit\n")
-            f.write("menu_edit_preferences=Preferences...\n")
-            f.write("menu_edit_site_info=Edit Site Information...\n")
-            f.write("menu_floor=Floor\n")
-            f.write("menu_floor_add_new_floor=Add New Floor...\n")
-            f.write("menu_floor_edit_current_floor_map=Edit Current Floor Map...\n")
-            f.write("menu_floor_set_scale_lines=Set Scale Lines (Current Floor)...\n")
-            f.write("menu_scan=Scan\n")
-            f.write("menu_scan_run_scan=Run Scan (Current Location)\n")
-            f.write("menu_scan_configure_scan_tools=Configure Scan Tools...\n")
-            f.write("menu_report=Report\n")
-            f.write("menu_report_generate_pdf_report=Generate PDF Report...\n")
-            f.write("menu_view=View\n")
-            f.write("menu_view_toggle_ap_list_panel=Toggle AP List Panel\n")
-            f.write("menu_view_zoom_in=Zoom In\n")
-            f.write("menu_view_zoom_out=Zoom Out\n")
-            f.write("menu_help=Help\n")
-            f.write("menu_help_about=About...\n")
-            f.write("save_changes_title=Save Changes\n")
-            f.write("save_changes_message=Do you want to save changes to the current project?\n")
-            f.write("info_title=Information\n")
-            f.write("save_not_implemented_message=Save functionality is not yet implemented.\n")
-            f.write("new_project_created_status=New project '{site_name}' created.\n")
-            f.write("new_project_cancelled_status=New project creation cancelled.\n")
-            f.write("no_project_title=No Project\n")
-            f.write("no_project_loaded_message_short=No project is currently loaded.\n")
-            f.write("site_info_updated_status=Site information updated.\n")
-            f.write("site_info_edit_cancelled_status=Site information edit cancelled.\n")
-            f.write("floor_import_title=Import Floor Plan\n")
-            f.write("file_selection_group=File Selection\n")
-            f.write("floor_number_label=Floor Number:\n")
-            f.write("floor_number_placeholder=e.g., 1, Ground Floor, Basement\n")
-            f.write("image_file_label=Image/PDF File:\n")
-            f.write("select_image_file_title=Select Floor Plan Image or PDF\n")
-            f.write("image_file_filter=Image Files (*.png *.jpg *.jpeg);;PDF Files (*.pdf);;All Files (*);;\n")
-            f.write("crop_button=Crop\n")
-            f.write("reset_crop_button=Reset Crop\n")
-            f.write("next_button=Next\n")
-            f.write("no_image_loaded_message=No image loaded. Please select an image or PDF file.\n")
-            f.write("image_load_error_message=Could not load image from '{file_path}'.\n")
-            f.write("poppler_not_configured_title=Poppler Not Configured\n")
-            f.write("poppler_not_configured_message=Poppler binaries path is not set in Preferences. PDF conversion will not work.\n")
-            f.write("poppler_executable_not_found_title=Poppler Executable Not Found\n")
-            f.write("poppler_executable_not_found_message=Poppler executable '{exe}' not found. Please check your Poppler path in Preferences.\\n\n")
-            f.write("temp_dir_error_message=Failed to create temporary directory.\n")
-            f.write("pdf_conversion_progress_format=Converting PDF... %p%\\n\n")
-            f.write("pdf_conversion_started=PDF conversion started...\\n\n")
-            f.write("converted_image_load_error=Could not load converted image from '{path}'.\\n\n")
-            f.write("pdf_output_file_missing=PDF conversion finished, but output file '{path}' is missing.\\n\n")
-            f.write("pdf_conversion_success=PDF converted successfully!\\n\n")
-            f.write("pdf_conversion_failed_title=PDF Conversion Failed\\n\n")
-            f.write("pdf_conversion_failed_message=PDF conversion failed.\\nExit Code: {exit_code}\\nError Output:\\n{error_output}\\n\n")
-            f.write("poppler_process_start_error=Failed to start Poppler process: {error}\\n\n")
-            f.write("poppler_process_error=Poppler process error.\\n\n")
-            f.write("poppler_failed_to_start=Poppler process failed to start. Check path and permissions.\\n\n")
-            f.write("poppler_crashed=Poppler process crashed.\\n\n")
-            f.write("poppler_timed_out=Poppler process timed out.\\n\n")
-            f.write("poppler_read_error=Poppler process read error.\\n\n")
-            f.write("poppler_write_error=Poppler process write error.\\n\n")
-            f.write("poppler_unknown_error=Poppler process unknown error.\\n\n")
-            f.write("warning_title=Warning\n")
-            f.write("no_crop_selection_message=Please draw a selection rectangle on the image first.\n")
-            f.write("image_item_not_found=Image item not found in scene.\n")
-            f.write("crop_failed_message=Cropping failed. Please try again.\n")
-            f.write("image_cropped_and_resized_message=Image cropped and resized to 1920x1080.\n")
-            f.write("floor_number_mandatory_message=Floor Number is a mandatory field.\n")
-            f.write("image_not_processed_message=No image has been processed. Please load, crop, and resize an image.\n")
-            f.write("image_save_error_message=Failed to save processed image to '{path}'.\n")
-            f.write("no_floors_added_message=No floors added yet for '{site_name}'. Add the first floor via the 'Floor' menu.\n")
-            f.write("current_floor_display_message=Displaying Floor {floor_number} for '{site_name}'.\n")
-            f.write("no_project_for_floor_message=Please create or open a project first before adding floors.\n")
-            f.write("floor_added_status=Floor {floor_number} added successfully.\n")
-            f.write("floor_add_failed_status=Failed to add floor.\n")
-            f.write("floor_add_cancelled_status=Floor addition cancelled.\n")
-            f.write("new_project_cancelled_full_status=New project creation cancelled because no floor was added.\n")
-            f.write("scale_line_title=Set Scale Lines\n")
-            f.write("scale_line_input_group=Define Scale Line\n")
-            f.write("line_type_label=Line Type:\n")
-            f.write("horizontal_line_type=Horizontal\n")
-            f.write("vertical_line_type=Vertical\n")
-            f.write("physical_dimension_label=Physical Dimension:\n")
-            f.write("physical_dimension_placeholder=E.g.: 40' 6\"; 40 ft 6 in; 40.5 feet; 12.34m; 12.34 meters\n")
-            f.write("current_line_pixels_label=Current Line (Pixels):\n")
-            f.write("pixels_label={pixels} px\n")
-            f.write("calculated_scale_label=Calculated Scale:\n")
-            f.write("current_scale_label={scale}\n")
-            f.write("set_line_button=Set Line\n")
-            f.write("unit_feet=ft\n")
-            f.write("unit_meters=m\n")
-            f.write("no_line_to_set_message=No line is currently displayed or it has zero length. Please adjust a line or ensure one is visible.\n")
-            f.write("physical_dimension_mandatory_message=Physical Dimension is a mandatory field.\n")
-            f.write("horizontal_line_set_status=Horizontal scale line set to '{dim}'.\n")
-            f.write("vertical_line_set_status=Vertical line set to '{dim}'.\n")
-            f.write("at_least_one_scale_line_mandatory=Please set at least one scale line (horizontal or vertical).\n")
-            f.write("select_line_type_message=Please select a line type (Horizontal or Vertical) first.\n")
-            f.write("no_floor_to_set_scale_message=No floor is currently loaded to set scale lines.\n")
-            f.write("scale_lines_set_status=Scale lines set for Floor {floor_number}.\n")
-            f.write("scale_lines_cancelled_status=Scale line setup cancelled for Floor {floor_number}.\n")
-            f.write("image_load_error_for_display=Could not load map for Floor {floor_number} of '{site_name}'.\n")
-            f.write("no_map_for_current_floor_message=No map image available for Floor {floor_number} of '{site_name}'. Please add or edit the floor map.\n")
-            f.write("enter_horizontal_dimension_message=Step 1: Enter the physical dimension for the pre-drawn horizontal line.\n")
-            f.write("edit_horizontal_dimension_message=Adjust the horizontal line by dragging its ends, then enter its physical dimension.\n")
-            f.write("edit_vertical_dimension_message=Adjust the vertical line by dragging its ends, then enter its physical dimension.\n")
-            f.write("edit_scale_lines_message=Scale lines set. You can adjust them by dragging the ends, or click OK.\n")
-            f.write("both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.\n")
-            f.write("auto_vertical_line_proposed_status=Vertical line auto-proposed based on horizontal: '{dim}'. Adjust if needed.\n")
+        print(f"Warning: Translation file not found at {en_us_path}")
+        print("Please ensure the i18n/en_US.txt file exists in the project directory")
+        print("The application will use the key names as fallback strings")
 
     # For standalone testing, create a dummy temporary directory
     temp_test_dir = QTemporaryDir()

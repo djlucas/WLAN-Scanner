@@ -80,12 +80,14 @@ class PlacedAP:
     """
     Represents a user-placed Access Point on the map.
     """
-    def __init__(self, name, manufacturer, model, ip_address, ethernet_mac, map_x, map_y, associated_scan_data=None, timestamp_last_scan=None):
+    def __init__(self, name, manufacturer="", model="", ip_address="", ethernet_mac="", serial_number="", asset_tag="", map_x=0, map_y=0, associated_scan_data=None, timestamp_last_scan=None):
         self.name = name
         self.manufacturer = manufacturer
         self.model = model
         self.ip_address = ip_address
         self.ethernet_mac = ethernet_mac
+        self.serial_number = serial_number
+        self.asset_tag = asset_tag
         self.map_x = map_x
         self.map_y = map_y
         self.associated_scan_data = associated_scan_data if associated_scan_data is not None else [] # List of APData objects
@@ -98,6 +100,8 @@ class PlacedAP:
             'model': self.model,
             'ip_address': self.ip_address,
             'ethernet_mac': self.ethernet_mac,
+            'serial_number': self.serial_number,
+            'asset_tag': self.asset_tag,
             'map_x': self.map_x,
             'map_y': self.map_y,
             'associated_scan_data': [ap.to_dict() for ap in self.associated_scan_data],
@@ -111,10 +115,12 @@ class PlacedAP:
         timestamp_last_scan = datetime.fromisoformat(data['timestamp_last_scan']) if data['timestamp_last_scan'] else None
         return cls(
             name=data['name'],
-            manufacturer=data['manufacturer'],
-            model=data['model'],
-            ip_address=data['ip_address'],
-            ethernet_mac=data['ethernet_mac'],
+            manufacturer=data.get('manufacturer', ''),
+            model=data.get('model', ''),
+            ip_address=data.get('ip_address', ''),
+            ethernet_mac=data.get('ethernet_mac', ''),
+            serial_number=data.get('serial_number', ''),
+            asset_tag=data.get('asset_tag', ''),
             map_x=data['map_x'],
             map_y=data['map_y'],
             associated_scan_data=associated_scan_data,
@@ -177,35 +183,41 @@ class ScaleLine:
         value = None
         unit = None
 
-        # Regex for feet and inches (e.g., 40' 6", 40 ft 6 in, 40')
-        match_ft_in = re.match(r"(\d+)'\s*(?:(\d+)\s*\"|\s*(\d+)\s*in)?", input_string)
-        if match_ft_in:
-            feet = float(match_ft_in.group(1))
-            inches = 0.0
-            if match_ft_in.group(2): # "X' Y"" format
-                inches = float(match_ft_in.group(2))
-            elif match_ft_in.group(3): # "X' Y in" format
-                inches = float(match_ft_in.group(3))
-            
+        # Try different patterns in order of specificity
+
+        # Pattern 1: Feet and inches with quotes (e.g., 40' 6", 40'6", 40' 6", 40.5' 3")
+        match = re.match(r"(\d+(?:\.\d+)?)\'\s*(\d+(?:\.\d+)?)\s*\"", input_string)
+        if match:
+            feet = float(match.group(1))
+            inches = float(match.group(2))
             total_feet = feet + (inches / 12.0)
-            value = total_feet * 0.3048 # Convert feet to meters
-            unit = "m"
-            return value, unit
+            return total_feet * 0.3048, "m"
 
-        # Regex for feet (e.g., 40 feet, 40.5 feet, 40ft)
-        match_feet = re.match(r"(\d+(\.\d+)?)\s*(feet|ft)", input_string)
-        if match_feet:
-            total_feet = float(match_feet.group(1))
-            value = total_feet * 0.3048 # Convert feet to meters
-            unit = "m"
-            return value, unit
+        # Pattern 2: Just feet with quote (e.g., 40', 40.5')
+        match = re.match(r"(\d+(?:\.\d+)?)'$", input_string)
+        if match:
+            feet = float(match.group(1))
+            return feet * 0.3048, "m"
 
-        # Regex for meters (e.g., 12.34m, 12.34 meters)
-        match_meters = re.match(r"(\d+(\.\d+)?)\s*(meters|m)", input_string)
-        if match_meters:
-            value = float(match_meters.group(1))
-            unit = "m" # Already in meters
-            return value, unit
+        # Pattern 3: Feet and inches with words (e.g., 40 ft 6 in, 40ft 6in)
+        match = re.match(r"(\d+(?:\.\d+)?)\s*ft\s*(\d+(?:\.\d+)?)\s*in", input_string)
+        if match:
+            feet = float(match.group(1))
+            inches = float(match.group(2))
+            total_feet = feet + (inches / 12.0)
+            return total_feet * 0.3048, "m"
+
+        # Pattern 4: Just feet with words (e.g., 40 feet, 40.5 feet, 40ft)
+        match = re.match(r"(\d+(?:\.\d+)?)\s*(feet|ft)$", input_string)
+        if match:
+            feet = float(match.group(1))
+            return feet * 0.3048, "m"
+
+        # Pattern 5: Meters (e.g., 12.34m, 12.34 meters, 12m)
+        match = re.match(r"(\d+(?:\.\d+)?)\s*(meters?|m)$", input_string)
+        if match:
+            value = float(match.group(1))
+            return value, "m"  # Already in meters
 
         return None, None # No match
 

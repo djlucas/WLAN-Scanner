@@ -86,8 +86,35 @@ save_changes_title=Save Changes
 save_changes_message=Do you want to save changes to the current project?
 info_title=Information
 save_not_implemented_message=Save functionality is not yet implemented.
+collecting_site_info_status=Collecting site information...
+creating_project_status=Creating project '{site_name}'...
 new_project_created_status=New project '{site_name}' created.
 new_project_cancelled_status=New project creation cancelled.
+importing_first_floor_status=Adding first floor plan...
+importing_floor_status=Adding floor plan...
+setting_scale_lines_status=Setting scale lines for {floor_description}...
+
+# Error messages and dialog strings
+failed_load_project_message=Failed to load project from '{file_path}'
+no_project_to_save_message=No project is currently loaded to save.
+save_error_title=Save Error
+failed_save_project_message=Failed to save project to '{file_path}'
+run_scan_not_implemented_message=Run Scan functionality not yet implemented.
+configure_scan_tools_not_implemented_message=Configure Scan Tools functionality not yet implemented.
+generate_pdf_report_not_implemented_message=Generate PDF Report functionality not yet implemented.
+no_map_title=No Map
+no_project_with_map_message=Please load a project with a map to export.
+no_map_image_title=No Map Image
+no_map_image_available_message=No map image available to export.
+export_successful_title=Export Successful
+map_exported_message=Map exported to:\n{file_path}
+export_failed_title=Export Failed
+failed_save_map_image_message=Failed to save the map image.
+export_error_title=Export Error
+error_exporting_map_message=Error exporting map:\n{error}
+no_project_with_scan_data_message=Please load a project with scan data to view heatmaps.
+about_application_message=WLAN Scanner Application v0.1
+
 no_project_title=No Project
 no_project_loaded_message_short=No project is currently loaded.
 site_info_updated_status=Site information updated.
@@ -96,8 +123,8 @@ site_info_edit_cancelled_status=Site information edit cancelled.
 # Floor Import Dialog
 floor_import_title=Import Floor Plan
 file_selection_group=File Selection
-floor_number_label=Floor Number:
-floor_number_placeholder=e.g., 1, Ground Floor, Basement
+floor_number_label=Floor Description:
+floor_number_placeholder=e.g., Ground Floor, 2nd Floor, Basement, Mezzanine
 image_file_label=Image/PDF File:
 select_image_file_title=Select Floor Plan Image or PDF
 image_file_filter=Image Files (*.png *.jpg *.jpeg);;PDF Files (*.pdf);;All Files (*);;
@@ -164,11 +191,11 @@ vertical_line_set_status=Vertical line set to '{dim}'.
 at_least_one_scale_line_mandatory=Please set at least one scale line (horizontal or vertical).
 select_line_type_message=Please select a line type (Horizontal or Vertical) first.
 no_floor_to_set_scale_message=No floor is currently loaded to set scale lines.
-scale_lines_set_status=Scale lines set for Floor {floor_number}.
+scale_lines_set_status=Scale lines set for {floor_number}.
 scale_lines_cancelled_status=Scale line setup cancelled for Floor {floor_number}.
 image_load_error_for_display=Could not load map for Floor {floor_number} of '{site_name}'.
 no_map_for_current_floor_message=No map image available for Floor {floor_number} of '{site_name}'. Please add or edit the floor map.
-enter_horizontal_dimension_message=Step 1: Enter the physical dimension for the pre-drawn horizontal line.
+enter_horizontal_dimension_message=Adjust the horizontal line by dragging its ends, then enter its physical dimension and click 'Set Line'.
 
 # Interactive Map Context Menu
 edit_ap_properties=Edit AP Properties
@@ -218,6 +245,40 @@ edit_horizontal_dimension_message=Adjust the horizontal line by dragging its end
 edit_vertical_dimension_message=Adjust the vertical line by dragging its ends, then enter its physical dimension.
 edit_scale_lines_message=Scale lines set. You can adjust them by dragging the ends, or click OK.
 both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.
-auto_vertical_line_proposed_status=Vertical line auto-proposed based on horizontal: '{dim}'. Adjust if needed.
+auto_vertical_line_proposed_status=Vertical line auto-proposed (suggested: {dim}). Drag the ends to adjust position, enter actual dimension, then click 'Set Line'.
 detecting_lines_message=Detecting lines, please wait...
 both_scale_lines_mandatory=Please set both horizontal and vertical scale lines.
+
+# WiFi Scanner Error Messages
+wifi_scanner_error_title=WiFi Scanner Error
+wifi_scan_error_title=WiFi Scan Error
+scan_error_title=Scan Error
+wifi_scanning_not_available_message=WiFi scanning is not available on this system.
+live_wifi_scanning_failed_message=Live WiFi scanning failed:\n{error}
+
+# Floor Import Instructions
+crop_image_instruction_message=Image loaded successfully. Please draw a rectangle around the area you want to keep, then click the Crop button.
+
+# Scale Line Instructions
+horizontal_line_instruction_message=Adjust the horizontal line by dragging its ends, then enter its physical dimension and click 'Set Line'.
+vertical_line_instruction_message=Adjust the vertical line by dragging its ends, then enter its physical dimension and click 'Set Line'.
+
+# Progressive User Instructions
+place_first_ap_instruction=Right-click on the map to place your first access point.
+scan_at_ap_instruction=Right-click on access points to scan for WiFi networks, or place more access points first.
+place_more_aps_instruction=Place more access points or scan points on the map to improve coverage analysis.
+aps_need_scan_data_instruction={count} access point(s) need scan data. Right-click on orange APs to scan for networks.
+add_more_aps_or_scan_points_instruction=All access points have scan data. Add more APs or scan points to improve coverage analysis.
+
+# AP Properties Dialog
+ap_properties_title=Edit AP Properties
+new_ap_properties_title=New Access Point
+ap_name_label=*Name:
+ap_manufacturer_label=Manufacturer:
+ap_model_label=Model:
+ap_ethernet_mac_label=Ethernet MAC:
+ap_serial_number_label=Serial Number:
+ap_asset_tag_label=Asset Tag:
+ap_name_mandatory_message=Name is a mandatory field.
+ap_properties_updated_status=AP '{old_name}' properties updated
+ap_placement_cancelled_status=AP placement cancelled

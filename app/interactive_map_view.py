@@ -14,8 +14,8 @@
 
 import datetime
 # import random  # Removed - no longer needed without simulation fallback
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction, QDialog, QScrollArea, QPushButton, QApplication
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction, QDialog, QScrollArea, QPushButton, QApplication, QFormLayout, QLineEdit
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent
 from .data_models import PlacedAP, ScanPoint
 # from .scan_simulator import ScanSimulator  # Removed for V1, will be used in V2 for predictive heatmaps
@@ -31,6 +31,7 @@ class InteractiveMapView(QWidget):
     ap_placed = pyqtSignal(object)  # Emitted when an AP is placed
     scan_point_added = pyqtSignal(object)  # Emitted when a scan point is added
     status_message = pyqtSignal(str)  # Emitted to update main window status bar
+    request_instruction_update = pyqtSignal()  # Emitted to request user instruction update
 
     def __init__(self, i18n_manager, debug_mode=False, parent=None):
         """
@@ -555,8 +556,11 @@ class InteractiveMapView(QWidget):
             # Menu options for existing AP
             context_menu.addAction(self.i18n.get_string("edit_ap_properties"), lambda: self._edit_ap_properties(clicked_ap))
 
-            # Scan options - always show rescan, plus additional options if has data
-            context_menu.addAction(self.i18n.get_string("rescan_at_this_ap"), lambda: self._scan_at_ap(clicked_ap))
+            # Scan options - show "Scan" or "Rescan" based on whether AP has data
+            if self._has_scan_data(clicked_ap):
+                context_menu.addAction(self.i18n.get_string("rescan_at_this_ap"), lambda: self._scan_at_ap(clicked_ap))
+            else:
+                context_menu.addAction(self.i18n.get_string("scan_at_this_ap"), lambda: self._scan_at_ap(clicked_ap))
 
             if self._has_scan_data(clicked_ap):
                 context_menu.addAction(self.i18n.get_string("clear_this_ap_scan_data"), lambda: self._clear_ap_scan_data(clicked_ap))
@@ -619,22 +623,15 @@ class InteractiveMapView(QWidget):
         Args:
             ap (PlacedAP): The AP to edit
         """
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Edit Access Point",
-            f"Edit name for AP at ({int(ap.map_x)}, {int(ap.map_y)}):",
-            text=ap.name
-        )
-
-        if ok and new_name.strip():
-            old_name = ap.name
-            ap.name = new_name.strip()
+        old_name = ap.name
+        dialog = APPropertiesDialog(ap, self.i18n, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
             self._render_map()
-            # Status updates now handled by main window
-        # self.status_label.setText(self.i18n.get_string("ap_renamed_status").format(old_name=old_name, ap_name=ap.name))
-
+            # Emit status signal to show that AP properties were updated
+            status_message = self.i18n.get_string("ap_properties_updated_status").format(old_name=old_name)
+            self.status_message.emit(status_message)
             if self.debug_mode:
-                print(f"DEBUG: AP renamed from '{old_name}' to '{ap.name}'")
+                print(f"DEBUG: AP properties updated for '{ap.name}'")
 
     def _remove_ap(self, ap):
         """
@@ -750,45 +747,52 @@ class InteractiveMapView(QWidget):
         Args:
             x, y (int): Map coordinates
         """
-        # Get AP name from user
-        ap_name, ok = QInputDialog.getText(
-            self,
-            "Place Access Point",
-            "Enter AP name:",
-            text=f"AP_{len(self.current_floor.placed_aps) + 1}"
-        )
-
-        if not ok or not ap_name.strip():
-            return
-
-        # Create new placed AP
+        # Create new AP with default values
         new_ap = PlacedAP(
-            name=ap_name.strip(),
-            manufacturer="Unknown",
-            model="Unknown",
+            name=f"AP_{len(self.current_floor.placed_aps) + 1}",
+            manufacturer="",
+            model="",
             ip_address="",
             ethernet_mac="",
+            serial_number="",
+            asset_tag="",
             map_x=x,
             map_y=y,
             timestamp_last_scan=None  # No scan data initially
         )
 
-        # Add to current floor
-        self.current_floor.placed_aps.append(new_ap)
+        # Show AP Properties dialog for the new AP
+        dialog = APPropertiesDialog(new_ap, self.i18n, parent=self, is_new_ap=True)
+        if dialog.exec_() == QDialog.Accepted:
+            # User accepted - add the AP to current floor
+            self.current_floor.placed_aps.append(new_ap)
 
-        # AP locations updated - ready for scanning
+            # Re-render map
+            self._render_map()
 
-        # Re-render map
-        self._render_map()
+            # Emit signal
+            self.ap_placed.emit(new_ap)
 
-        # Emit signal
-        self.ap_placed.emit(new_ap)
+            if self.debug_mode:
+                print(f"DEBUG: Placed AP '{new_ap.name}' at ({x}, {y})")
 
-        if self.debug_mode:
-            print(f"DEBUG: Placed AP '{ap_name}' at ({x}, {y})")
+            # Immediately offer to scan at the new AP location
+            self._offer_immediate_scan(new_ap)
+        else:
+            # User cancelled - AP is not added
+            self._show_temporary_status_message(self.i18n.get_string("ap_placement_cancelled_status"))
+            if self.debug_mode:
+                print(f"DEBUG: AP placement cancelled at ({x}, {y})")
 
-        # Immediately offer to scan at the new AP location
-        self._offer_immediate_scan(new_ap)
+    def _show_temporary_status_message(self, message):
+        """
+        Show a temporary status message for 2 seconds, then request instruction update
+
+        Args:
+            message (str): The temporary message to display
+        """
+        self.status_message.emit(message)
+        QTimer.singleShot(2000, self.request_instruction_update.emit)
 
     def _add_scan_point_at_position(self, x, y, replace_existing=False):
         """
@@ -815,7 +819,7 @@ class InteractiveMapView(QWidget):
                 scan_type = "Live"
             else:
                 # No fallback - show error if WiFi scanning not available
-                QMessageBox.warning(self, "WiFi Scanner Error", "WiFi scanning is not available on this system.")
+                QMessageBox.warning(self, self.i18n.get_string("wifi_scanner_error_title"), self.i18n.get_string("wifi_scanning_not_available_message"))
                 return
 
             # Create scan point
@@ -854,15 +858,15 @@ class InteractiveMapView(QWidget):
         # self.status_label.setText(self.i18n.get_string("scan_failed_status").format(x=x, y=y))
 
             # Show error to user - no fallback
-            QMessageBox.warning(self, "WiFi Scan Error",
-                              f"Live WiFi scanning failed:\n{e}")
+            QMessageBox.warning(self, self.i18n.get_string("wifi_scan_error_title"),
+                              self.i18n.get_string("live_wifi_scanning_failed_message").format(error=e))
         except Exception as e:
             # Handle unexpected errors
             error_msg = f"Unexpected error during scan at ({x}, {y}): {e}"
             print(f"ERROR: {error_msg}")
             # Status updates now handled by main window
         # self.status_label.setText(self.i18n.get_string("scan_error_status").format(x=x, y=y))
-            QMessageBox.critical(self, "Scan Error", error_msg)
+            QMessageBox.critical(self, self.i18n.get_string("scan_error_title"), error_msg)
 
     def set_placement_mode(self, mode):
         """
@@ -963,7 +967,7 @@ class InteractiveMapView(QWidget):
                 scan_type = "Live"
             else:
                 # No fallback - show error if WiFi scanning not available
-                QMessageBox.warning(self, "WiFi Scanner Error", "WiFi scanning is not available on this system.")
+                QMessageBox.warning(self, self.i18n.get_string("wifi_scanner_error_title"), self.i18n.get_string("wifi_scanning_not_available_message"))
                 return
 
             # Create scan point at AP location
@@ -998,15 +1002,15 @@ class InteractiveMapView(QWidget):
         # self.status_label.setText(self.i18n.get_string("ap_scan_failed_status").format(ap_name=ap.name))
 
             # Show error to user - no fallback
-            QMessageBox.warning(self, "WiFi Scan Error",
-                              f"Live WiFi scanning failed:\n{e}")
+            QMessageBox.warning(self, self.i18n.get_string("wifi_scan_error_title"),
+                              self.i18n.get_string("live_wifi_scanning_failed_message").format(error=e))
         except Exception as e:
             # Handle unexpected errors
             error_msg = f"Unexpected error during scan at AP '{ap.name}': {e}"
             print(f"ERROR: {error_msg}")
             # Status updates now handled by main window
         # self.status_label.setText(self.i18n.get_string("ap_scan_error_status").format(ap_name=ap.name))
-            QMessageBox.critical(self, "Scan Error", error_msg)
+            QMessageBox.critical(self, self.i18n.get_string("scan_error_title"), error_msg)
 
     def _clear_ap_scan_data(self, ap):
         """
@@ -1277,3 +1281,96 @@ class InteractiveMapView(QWidget):
         layout.addWidget(close_button)
 
         dialog.exec_()
+
+
+class APPropertiesDialog(QDialog):
+    """Dialog for editing Access Point properties"""
+
+    def __init__(self, ap, i18n, parent=None, is_new_ap=False):
+        super().__init__(parent)
+        self.ap = ap
+        self.i18n = i18n
+        self.is_new_ap = is_new_ap
+
+        if is_new_ap:
+            self.setWindowTitle(self.i18n.get_string("new_ap_properties_title"))
+        else:
+            self.setWindowTitle(self.i18n.get_string("ap_properties_title"))
+
+        self.setModal(True)
+        self.resize(400, 350)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Create form layout for the fields
+        form_layout = QFormLayout()
+
+        # Name field (mandatory)
+        self.name_input = QLineEdit(self.ap.name)
+        name_label = QLabel(self.i18n.get_string("ap_name_label"))
+        name_label.setStyleSheet("font-weight: bold;")
+        form_layout.addRow(name_label, self.name_input)
+
+        # Manufacturer field
+        self.manufacturer_input = QLineEdit(self.ap.manufacturer)
+        form_layout.addRow(self.i18n.get_string("ap_manufacturer_label"), self.manufacturer_input)
+
+        # Model field
+        self.model_input = QLineEdit(self.ap.model)
+        form_layout.addRow(self.i18n.get_string("ap_model_label"), self.model_input)
+
+        # Ethernet MAC field
+        self.ethernet_mac_input = QLineEdit(self.ap.ethernet_mac)
+        form_layout.addRow(self.i18n.get_string("ap_ethernet_mac_label"), self.ethernet_mac_input)
+
+        # Serial Number field
+        self.serial_number_input = QLineEdit(self.ap.serial_number)
+        form_layout.addRow(self.i18n.get_string("ap_serial_number_label"), self.serial_number_input)
+
+        # Asset Tag field
+        self.asset_tag_input = QLineEdit(self.ap.asset_tag)
+        form_layout.addRow(self.i18n.get_string("ap_asset_tag_label"), self.asset_tag_input)
+
+        layout.addLayout(form_layout)
+
+        # Add some spacing
+        layout.addSpacing(20)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        self.ok_button = QPushButton(self.i18n.get_string("ok_button"))
+        self.ok_button.clicked.connect(self._on_ok_clicked)
+
+        cancel_button = QPushButton(self.i18n.get_string("cancel_button"))
+        cancel_button.clicked.connect(self.reject)
+
+        button_layout.addStretch()
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(cancel_button)
+
+        layout.addLayout(button_layout)
+
+        # Set focus to name field
+        self.name_input.setFocus()
+
+    def _on_ok_clicked(self):
+        """Handle OK button click with validation"""
+        name = self.name_input.text().strip()
+
+        if not name:
+            QMessageBox.warning(self, self.i18n.get_string("validation_error_title"), self.i18n.get_string("ap_name_mandatory_message"))
+            self.name_input.setFocus()
+            return
+
+        # Update the AP object with the new values
+        self.ap.name = name
+        self.ap.manufacturer = self.manufacturer_input.text().strip()
+        self.ap.model = self.model_input.text().strip()
+        self.ap.ethernet_mac = self.ethernet_mac_input.text().strip()
+        self.ap.serial_number = self.serial_number_input.text().strip()
+        self.ap.asset_tag = self.asset_tag_input.text().strip()
+
+        self.accept()

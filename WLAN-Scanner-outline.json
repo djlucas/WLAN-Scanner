@@ -75,11 +75,13 @@
             "name": "PlacedAP",
             "description": "Represents a user-placed Access Point on the map:",
             "fields": [
-              "`name` (string, user-defined)",
-              "`manufacturer` (string)",
-              "`model` (string)",
-              "`ip_address` (string)",
-              "`ethernet_mac` (string)",
+              "`name` (string, user-defined, mandatory)",
+              "`manufacturer` (string, optional)",
+              "`model` (string, optional)",
+              "`ip_address` (string, optional)",
+              "`ethernet_mac` (string, optional)",
+              "`serial_number` (string, optional)",
+              "`asset_tag` (string, optional)",
               "`map_x`, `map_y` (float/integer coordinates on the scaled map image in metric units internally).",
               "`associated_scan_data` (list of `APData` objects from the immediate scan under this AP).",
               "`primary_bssid` (string, strongest BSSID from associated_scan_data - establishes AP identity).",
@@ -142,8 +144,9 @@
             "description": "Professional context-sensitive menus for all map interactions",
             "features": [
               "Right-click empty space: 'Place Access Point Here', 'Run Scan Here (Live/Simulated)', bulk clear operations",
-              "Right-click existing AP: Smart menu with Edit, Scan/Rescan, Clear data, Remove options",
-              "Context adapts based on AP scan status (scanned vs unscanned)"
+              "Right-click existing AP: Smart menu with Edit Properties, Scan/Rescan, Clear data, Remove options",
+              "Context adapts based on AP scan status (scanned vs unscanned)",
+              "Comprehensive AP Properties dialog with asset management fields"
             ]
           },
           {
@@ -254,6 +257,12 @@
             "name": "Scale Line Dialog",
             "file": "scale_line_dialog.py",
             "status": "IMPLEMENTED"
+          },
+          {
+            "name": "AP Properties Dialog",
+            "file": "interactive_map_view.py (APPropertiesDialog class)",
+            "status": "IMPLEMENTED",
+            "description": "Comprehensive asset management dialog with manufacturer, model, serial number, ethernet MAC, and asset tag fields"
           }
         ]
       }
@@ -468,7 +477,9 @@
       "✅ Comprehensive progress indicators with internationalization support",
       "✅ Optimized heatmap generation (~5s) with elimination of double-generation issues",
       "✅ Advanced scroll bar navigation with fit-to-window defaults",
-      "✅ SSID-based heatmap network selection and identification"
+      "✅ SSID-based heatmap network selection and identification",
+      "✅ Comprehensive AP asset management with properties dialog (manufacturer, model, serial number, ethernet MAC, asset tag)",
+      "✅ Project persistence compatibility for AP properties with backward/forward compatibility"
     ]
   }
 ]

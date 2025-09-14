@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem,
     QGroupBox, QComboBox, QStatusBar
 )
-from PyQt5.QtCore import Qt, QRectF, QPointF, QSize, QLineF
+from PyQt5.QtCore import Qt, QRectF, QPointF, QSize, QLineF, QTimer
 from PyQt5.QtGui import QPixmap, QPen, QColor, QPainter, QBrush, QImage # Import QImage for pixel access
 
 # Local imports from the 'app' package
@@ -79,6 +79,8 @@ class ScaleLineDialog(QDialog):
 
         self.horizontal_line_data = None # Stores ScaleLine object for horizontal
         self.vertical_line_data = None   # Stores ScaleLine object for vertical
+        self.horizontal_line_set = False # True when user has actually set horizontal line
+        self.vertical_line_set = False   # True when user has actually set vertical line
 
         self._init_ui()
         self._display_image() # Displays image and calls _redraw_all_lines
@@ -128,6 +130,7 @@ class ScaleLineDialog(QDialog):
         self.physical_dimension_input = QLineEdit()
         self.physical_dimension_input.setPlaceholderText(self.i18n.get_string("physical_dimension_placeholder"))
         self.physical_dimension_input.textChanged.connect(self._update_calculated_scale)
+        self.physical_dimension_input.textChanged.connect(self._on_dimension_input_changed)
         scale_input_layout.addRow(self.i18n.get_string("physical_dimension_label"), self.physical_dimension_input)
 
         self.current_line_pixels_label = QLabel(self.i18n.get_string("pixels_label").format(pixels=0))
@@ -274,7 +277,7 @@ class ScaleLineDialog(QDialog):
         
         self.line_type_combo.setCurrentText(self.i18n.get_string("horizontal_line_type"))
         self._update_calculated_scale()
-        self._status_bar.showMessage(self.i18n.get_string("enter_horizontal_dimension_message"))
+        self._status_bar.showMessage(self.i18n.get_string("horizontal_line_instruction_message"))
         self.set_controls_enabled(True)
         if self.debug_mode:
             print(f"DEBUG: Auto-placed initial horizontal line: {self.horizontal_line_data.to_dict()}")
@@ -381,7 +384,7 @@ class ScaleLineDialog(QDialog):
 
         # Update UI and status based on selected line type
         if self.line_type_combo.currentText() == self.i18n.get_string("horizontal_line_type"):
-            self._status_bar.showMessage(self.i18n.get_string("edit_horizontal_dimension_message"))
+            self._status_bar.showMessage(self.i18n.get_string("horizontal_line_instruction_message"))
             if self.horizontal_line_data:
                 # Convert from meters (internal storage) to display unit based on config
                 display_value = self.horizontal_line_data.physical_dimension_value
@@ -389,11 +392,16 @@ class ScaleLineDialog(QDialog):
                 if self.config_manager.get("measurement_system", "Imperial") == "Imperial":
                     display_value = ScaleLine.convert_to_feet(display_value)
                     display_unit = "ft"
+                # Temporarily disconnect signal to avoid triggering _on_dimension_input_changed
+                self.physical_dimension_input.textChanged.disconnect()
                 self.physical_dimension_input.setText(self._format_physical_dimension_for_display(display_value, display_unit))
+                # Reconnect the signal
+                self.physical_dimension_input.textChanged.connect(self._update_calculated_scale)
+                self.physical_dimension_input.textChanged.connect(self._on_dimension_input_changed)
             else:
                 self.physical_dimension_input.clear()
         else: # Vertical line type
-            self._status_bar.showMessage(self.i18n.get_string("edit_vertical_dimension_message"))
+            self._status_bar.showMessage(self.i18n.get_string("vertical_line_instruction_message"))
             if self.vertical_line_data:
                 # Convert from meters (internal storage) to display unit based on config
                 display_value = self.vertical_line_data.physical_dimension_value
@@ -401,13 +409,46 @@ class ScaleLineDialog(QDialog):
                 if self.config_manager.get("measurement_system", "Imperial") == "Imperial":
                     display_value = ScaleLine.convert_to_feet(display_value)
                     display_unit = "ft"
+                # Temporarily disconnect signal to avoid triggering _on_dimension_input_changed
+                self.physical_dimension_input.textChanged.disconnect()
                 self.physical_dimension_input.setText(self._format_physical_dimension_for_display(display_value, display_unit))
+                # Reconnect the signal
+                self.physical_dimension_input.textChanged.connect(self._update_calculated_scale)
+                self.physical_dimension_input.textChanged.connect(self._on_dimension_input_changed)
             else:
                 self.physical_dimension_input.clear()
 
         self._redraw_all_lines() # This will set self.current_line_item and update labels
+
+        # Only enable Set Line button if the currently selected line isn't set yet
+        # If the current line is already set, keep button disabled until user makes changes
+        current_line_type = self.line_type_combo.currentText()
+        if current_line_type == self.i18n.get_string("horizontal_line_type"):
+            self.set_line_button.setEnabled(not self.horizontal_line_set)
+        else:  # Vertical line type
+            self.set_line_button.setEnabled(not self.vertical_line_set)
+
         self._update_ok_button_state()
 
+    def _on_dimension_input_changed(self):
+        """
+        Re-enables the Set Line button when the dimension input changes,
+        allowing users to set the line again with the new value.
+        Also unsets the appropriate line flag since the dimension has changed.
+        """
+        current_line_type = self.line_type_combo.currentText()
+
+        # Unset the flag for the currently selected line type since dimension changed
+        if current_line_type == self.i18n.get_string("horizontal_line_type"):
+            self.horizontal_line_set = False
+        else:  # Vertical line type
+            self.vertical_line_set = False
+
+        # Re-enable Set Line button since changes were made
+        if current_line_type == self.i18n.get_string("horizontal_line_type") and self.horizontal_line_data:
+            self.set_line_button.setEnabled(True)
+        elif current_line_type == self.i18n.get_string("vertical_line_type") and self.vertical_line_data:
+            self.set_line_button.setEnabled(True)
 
     def _get_handle_at_pos(self, line_item, scene_pos):
         """
@@ -525,6 +566,16 @@ class ScaleLineDialog(QDialog):
                                                         physical_value, False, physical_unit)
                     if self.debug_mode:
                         print(f"DEBUG: Vertical line updated after drag: {self.vertical_line_data.to_dict()}")
+
+                # Unset the appropriate flag since line position has changed
+                if self.line_type_combo.currentText() == self.i18n.get_string("horizontal_line_type"):
+                    self.horizontal_line_set = False
+                else:  # Vertical line type
+                    self.vertical_line_set = False
+
+                # Re-enable Set Line button since the line position has changed
+                self.set_line_button.setEnabled(True)
+
             self._status_bar.showMessage(self.i18n.get_string("edit_scale_lines_message"))
 
         self._update_calculated_scale() # Ensure scale is updated after release
@@ -565,9 +616,9 @@ class ScaleLineDialog(QDialog):
             if self.debug_mode:
                 print("DEBUG: Scale calculation skipped (no physical dimension or zero pixels).")
 
-        # Enable set_line_button if there's a valid line and physical dimension
-        self.set_line_button.setEnabled(physical_value is not None and current_line_pixels > 0)
-        self._update_ok_button_state() # Update OK button state after any change
+        # Don't automatically manage button state here - let the set line workflow handle it
+        # self.set_line_button.setEnabled(physical_value is not None and current_line_pixels > 0)
+        # self._update_ok_button_state() # Update OK button state after any change
 
     def _set_line(self):
         """
@@ -603,7 +654,10 @@ class ScaleLineDialog(QDialog):
             self.horizontal_line_data = ScaleLine(current_line_geometry.x1(), current_line_geometry.y1(),
                                                   current_line_geometry.x2(), current_line_geometry.y2(),
                                                   physical_value, True, "m") # Store as 'm' internally
+            self.horizontal_line_set = True  # Mark as actually set by user
             self._status_bar.showMessage(self.i18n.get_string("horizontal_line_set_status").format(dim=physical_dimension_text))
+            self.set_line_button.setEnabled(False)  # Disable button after horizontal line is set
+            QApplication.processEvents()  # Allow the horizontal status message to be displayed
             if self.debug_mode:
                 print(f"DEBUG: Horizontal scale line set to: {self.horizontal_line_data.to_dict()}")
 
@@ -624,17 +678,22 @@ class ScaleLineDialog(QDialog):
                 self._redraw_all_lines()
 
                 self.line_type_combo.setCurrentText(self.i18n.get_string("vertical_line_type"))
+
+                # Clear the input box instead of pre-filling with auto-proposed value
+                self.physical_dimension_input.clear()
+                self._update_calculated_scale()
+                self.set_line_button.setEnabled(True)  # Re-enable button for vertical line setup
+
                 display_value = h_line_physical_value
                 display_unit = "m"
                 if self.config_manager.get("measurement_system", "Imperial") == "Imperial":
                     display_value = ScaleLine.convert_to_feet(display_value)
                     display_unit = "ft"
-                
-                physical_text_for_input = self._format_physical_dimension_for_display(display_value, display_unit)
-                
-                self.physical_dimension_input.setText(physical_text_for_input)
-                self._update_calculated_scale()
-                self._status_bar.showMessage(self.i18n.get_string("auto_vertical_line_proposed_status").format(dim=physical_text_for_input))
+
+                physical_text_for_display = self._format_physical_dimension_for_display(display_value, display_unit)
+
+                # Brief delay to let user see the horizontal line confirmation before showing vertical instruction
+                QTimer.singleShot(1500, lambda: self._status_bar.showMessage(self.i18n.get_string("vertical_line_instruction_message")))
                 if self.debug_mode:
                     print(f"DEBUG: Auto-proposed vertical line. Data: {self.vertical_line_data.to_dict()}")
 
@@ -644,12 +703,23 @@ class ScaleLineDialog(QDialog):
             self.vertical_line_data = ScaleLine(current_line_geometry.x1(), current_line_geometry.y1(),
                                                 current_line_geometry.x2(), current_line_geometry.y2(),
                                                 physical_value, False, "m") # Store as 'm' internally
+            self.vertical_line_set = True  # Mark as actually set by user
             self._status_bar.showMessage(self.i18n.get_string("vertical_line_set_status").format(dim=physical_dimension_text))
+            self.set_line_button.setEnabled(False)  # Disable button after vertical line is set
+            QApplication.processEvents()  # Allow the vertical status message to be displayed
             if self.debug_mode:
                 print(f"DEBUG: Vertical scale line set to: {self.vertical_line_data.to_dict()}")
 
         self._redraw_all_lines() # Ensure lines are drawn correctly after setting
-        self._update_ok_button_state()
+
+        # Always call _update_ok_button_state, but delay it after vertical line is set
+        # to let user see the "Vertical line set to X" confirmation message
+        if self.line_type_combo.currentText() == self.i18n.get_string("vertical_line_type") and \
+           self.horizontal_line_set and self.vertical_line_set:
+            # Brief delay after setting vertical line to show confirmation before completion message
+            QTimer.singleShot(1500, self._update_ok_button_state)
+        else:
+            self._update_ok_button_state()
 
     def _format_physical_dimension_for_display(self, value, unit):
         """
@@ -675,32 +745,25 @@ class ScaleLineDialog(QDialog):
 
     def _update_ok_button_state(self):
         """
-        Enables the OK button only if both horizontal and vertical scale lines have been set.
+        Enables the OK button only if both horizontal and vertical scale lines have been set by user.
         Also updates status bar messages.
         """
-        is_ok_enabled = (self.horizontal_line_data is not None) and \
-                        (self.vertical_line_data is not None)
+        is_ok_enabled = self.horizontal_line_set and self.vertical_line_set
         self.ok_button.setEnabled(is_ok_enabled)
         if self.debug_mode:
             print(f"DEBUG: OK button enabled: {is_ok_enabled}")
             
-        # Update status bar messages based on state
-        if not self.horizontal_line_data:
-            self._status_bar.showMessage(self.i18n.get_string("enter_horizontal_dimension_message"))
-        elif not self.vertical_line_data:
-            # Display the auto-proposed vertical line dimension based on the horizontal line's physical value
-            # Convert from meters (h_line_physical_value) to display unit based on config
-            display_value = self.horizontal_line_data.physical_dimension_value
-            display_unit = "m"
-            if self.config_manager.get("measurement_system", "Imperial") == "Imperial":
-                display_value = ScaleLine.convert_to_feet(display_value)
-                display_unit = "ft"
-
-            self._status_bar.showMessage(self.i18n.get_string("auto_vertical_line_proposed_status").format(
-                dim=self._format_physical_dimension_for_display(display_value, display_unit)
-            ))
-        elif self.horizontal_line_data and self.vertical_line_data:
+        # Update status bar messages based on state and currently selected line type
+        if self.horizontal_line_set and self.vertical_line_set:
+            # Both lines are actually set by user - guide user to OK button
             self._status_bar.showMessage(self.i18n.get_string("edit_scale_lines_message"))
+        else:
+            # Show instruction for currently selected line type
+            current_line_type = self.line_type_combo.currentText()
+            if current_line_type == self.i18n.get_string("horizontal_line_type"):
+                self._status_bar.showMessage(self.i18n.get_string("horizontal_line_instruction_message"))
+            else: # Vertical line type
+                self._status_bar.showMessage(self.i18n.get_string("vertical_line_instruction_message"))
 
 
     def _validate_and_accept(self):
