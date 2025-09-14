@@ -133,7 +133,7 @@ Before running the application, ensure you have the following installed:
          - **SUSE/openSUSE**: `sudo zypper install python3-PyQt5 python3-numpy python3-scipy`
 
 4.  **Configure Poppler**:
-    The application needs the `poppler` binaries for PDF floor plan processing.
+    The application needs the `poppler` binaries for PDF floor plan processing and reports.
     
     **Windows Users**: Download and extract Poppler from:
     https://github.com/oschwartz10612/poppler-windows/releases
