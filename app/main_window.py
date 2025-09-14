@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
         generate_pdf_report_action = QAction(self.i18n.get_string("menu_report_generate_pdf_report"), self)
         generate_pdf_report_action.triggered.connect(self._generate_pdf_report)
         report_menu.addAction(generate_pdf_report_action)
-        
+
         export_map_image_action = QAction(self.i18n.get_string("menu_report_export_map_image"), self)
         export_map_image_action.triggered.connect(self._export_map_image)
         report_menu.addAction(export_map_image_action)
@@ -322,35 +322,35 @@ class MainWindow(QMainWindow):
         # Check if current project needs to be saved
         if not self._check_save_current_project():
             return
-        
+
         file_path, _ = QFileDialog.getOpenFileName(
-            self, 
+            self,
             "Open WLAN Scanner Project",
             "",
             "WLAN Scanner Projects (*.wls);;All Files (*)"
         )
-        
+
         if not file_path:
             if self.debug_mode:
                 print("DEBUG: Open project cancelled by user.")
             return
-        
+
         if self.debug_mode:
             print(f"DEBUG: Attempting to open project: {file_path}")
-        
+
         # Load the project
         project, extract_dir = ProjectManager.load_project(file_path)
-        
+
         if project is None:
             QMessageBox.critical(self, "Error", f"Failed to load project from '{file_path}'")
             if self.debug_mode:
                 print(f"DEBUG: Failed to load project from {file_path}")
             return
-        
+
         # Clean up old project temp directory if it exists
         if self.project_temp_dir and self.project_temp_dir.isValid():
             del self.project_temp_dir
-        
+
         # Set up the new project
         self.current_project = project
         self.project_temp_dir = QTemporaryDir()
@@ -358,16 +358,16 @@ class MainWindow(QMainWindow):
             # Copy extracted files to our managed temp directory
             import shutil
             shutil.copytree(extract_dir, self.project_temp_dir.path(), dirs_exist_ok=True)
-        
+
         self.current_project_file_path = file_path
         self.project_modified = False
-        
+
         # Update UI
         self._update_floor_selector()
         self._display_current_floor_map()
         self._fit_to_window()  # Default to fit-to-window view when loading projects
         self._update_window_title()
-        
+
         self.status_label.setText(f"Project '{self.current_project.site_info.site_name}' loaded successfully.")
         if self.debug_mode:
             print(f"DEBUG: Project loaded successfully from {file_path}")
@@ -382,22 +382,22 @@ class MainWindow(QMainWindow):
             if self.debug_mode:
                 print("DEBUG: Cannot save - no project loaded.")
             return
-        
+
         # If no file path exists, use Save As
         if self.current_project_file_path is None:
             self._save_project_as()
             return
-        
+
         if self.debug_mode:
             print(f"DEBUG: Saving project to {self.current_project_file_path}")
-        
+
         # Save to existing file
         success = ProjectManager.save_project(
-            self.current_project, 
+            self.current_project,
             self.current_project_file_path,
             self.project_temp_dir.path() if self.project_temp_dir and self.project_temp_dir.isValid() else None
         )
-        
+
         if success:
             self.project_modified = False
             self._update_window_title()
@@ -418,35 +418,35 @@ class MainWindow(QMainWindow):
             if self.debug_mode:
                 print("DEBUG: Cannot save as - no project loaded.")
             return
-        
+
         # Suggest default filename based on site name
         default_filename = self.current_project.site_info.site_name.replace(' ', '_')
         if not default_filename:
             default_filename = "WLAN_Survey"
         default_filename += ".wls"
-        
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save WLAN Scanner Project",
             default_filename,
             "WLAN Scanner Projects (*.wls);;All Files (*)"
         )
-        
+
         if not file_path:
             if self.debug_mode:
                 print("DEBUG: Save As cancelled by user.")
             return
-        
+
         if self.debug_mode:
             print(f"DEBUG: Saving project as {file_path}")
-        
+
         # Save to new file
         success = ProjectManager.save_project(
             self.current_project,
             file_path,
             self.project_temp_dir.path() if self.project_temp_dir and self.project_temp_dir.isValid() else None
         )
-        
+
         if success:
             self.current_project_file_path = file_path
             self.project_modified = False
@@ -518,7 +518,7 @@ class MainWindow(QMainWindow):
                 self.status_label.setText(self.i18n.get_string("floor_added_status").format(floor_number=new_floor.floor_number))
                 if self.debug_mode:
                     print(f"DEBUG: Floor {new_floor.floor_number} added to project. Original: {new_floor.original_image_path}, Cropped: {new_floor.cropped_image_path}, Scaled: {new_floor.scaled_image_path}")
-                
+
                 # After adding the floor, immediately open the ScaleLineDialog
                 if new_floor.scaled_image_path and os.path.exists(new_floor.scaled_image_path):
                     self._set_scale_lines_for_current_floor(is_first_floor_setup=is_first_floor)
@@ -562,7 +562,7 @@ class MainWindow(QMainWindow):
             return
 
         current_floor = self.current_project.floors[self.current_project.current_floor_index]
-        
+
         if not self.project_temp_dir or not self.project_temp_dir.isValid():
             QMessageBox.critical(self, self.i18n.get_string("error_title"),
                                  self.i18n.get_string("temp_dir_error_message"))
@@ -684,7 +684,7 @@ class MainWindow(QMainWindow):
         Handles window resize events.
         """
         super().resizeEvent(event)
-    
+
     def closeEvent(self, event):
         """
         Handles application close event with save check.
@@ -709,29 +709,29 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, self.i18n.get_string("info_title"), "Generate PDF Report functionality not yet implemented.")
         if self.debug_mode:
             print("DEBUG: Generate PDF Report functionality called (not implemented).")
-    
+
     def _export_map_image(self):
         """Export the current map view as a PNG image"""
         from PyQt5.QtWidgets import QFileDialog
         from PyQt5.QtCore import QStandardPaths
         import os
-        
+
         if self.current_project is None or not hasattr(self, 'map_view'):
             QMessageBox.warning(self, "No Map", "Please load a project with a map to export.")
             return
-            
+
         # Get the current map display pixmap from the map view
         current_pixmap = self.map_view.display_pixmap
         if not current_pixmap or current_pixmap.isNull():
             QMessageBox.warning(self, "No Map Image", "No map image available to export.")
             return
-        
+
         # Get default export location (Documents folder)
         documents_path = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
         site_name = self.current_project.site_info.site_name if self.current_project else "map"
         default_filename = f"{site_name}_map_export.png"
         default_path = os.path.join(documents_path, default_filename)
-        
+
         # Show save dialog
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -739,7 +739,7 @@ class MainWindow(QMainWindow):
             default_path,
             "PNG Images (*.png);;All Files (*)"
         )
-        
+
         if file_path:
             try:
                 # Save the pixmap as PNG
@@ -763,7 +763,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Project", "Please load a project with scan data to view heatmaps.")
             self.heatmap_toggle_action.setChecked(False)
             return
-        
+
         # Get the checked state and toggle heatmap
         heatmap_enabled = self.heatmap_toggle_action.isChecked()
 
@@ -787,28 +787,28 @@ class MainWindow(QMainWindow):
 
         # Enable/disable network selection menu
         self.heatmap_network_menu.setEnabled(heatmap_enabled)
-        
+
         if self.debug_mode:
             print(f"DEBUG: Heatmap {status}")
-    
+
     def _update_heatmap_network_menu(self):
         """Update the heatmap network selection menu with available networks"""
         self.heatmap_network_menu.clear()
-        
+
         if not self.current_project:
             return
-        
+
         # Get current network and available networks
         current_network = self.map_view.current_heatmap_network
         strongest_ssid = self.map_view.get_strongest_network_ssid()
-        
+
         # Get available networks from current map
         available_networks = self.map_view.get_available_networks()
 
         if available_networks:
             # Create action group for radio button behavior
             self.heatmap_network_group = QActionGroup(self)
-            
+
             for network in available_networks:
                 action = QAction(network, self)  # Just show SSID, no "Network:" prefix
                 action.setCheckable(True)
@@ -821,17 +821,17 @@ class MainWindow(QMainWindow):
 
                 self.heatmap_network_group.addAction(action)
                 self.heatmap_network_menu.addAction(action)
-        
+
         if self.debug_mode:
             print(f"DEBUG: Updated heatmap network menu with {len(available_networks)} networks")
-    
+
     def _set_heatmap_network(self, network_ssid):
         """Set the target network for heatmap display"""
         self.map_view.set_heatmap_network(network_ssid)
-        
+
         network_name = network_ssid if network_ssid else "Strongest Signal"
         self.status_label.setText(f"Heatmap showing: {network_name}")
-        
+
         if self.debug_mode:
             print(f"DEBUG: Heatmap network set to: {network_name}")
 
@@ -900,36 +900,36 @@ class MainWindow(QMainWindow):
     def _on_ap_placed(self, placed_ap):
         """
         Handle signal when an AP is placed on the map
-        
+
         Args:
             placed_ap (PlacedAP): The placed AP object
         """
         if self.debug_mode:
             print(f"DEBUG: AP '{placed_ap.name}' placed at ({placed_ap.map_x}, {placed_ap.map_y})")
-        
+
         # Mark project as modified
         self._mark_project_modified()
-        
+
         # Update status
         self.status_label.setText(f"Access Point '{placed_ap.name}' placed successfully")
 
     def _on_scan_point_added(self, scan_point):
         """
         Handle signal when a scan point is added to the map
-        
+
         Args:
             scan_point (ScanPoint): The scan point object
         """
         if self.debug_mode:
             print(f"DEBUG: Scan point added at ({scan_point.map_x}, {scan_point.map_y}) with {len(scan_point.ap_list)} APs")
-        
+
         # Mark project as modified
         self._mark_project_modified()
-        
+
         # Update heatmap network menu if heatmap is enabled
         if hasattr(self, 'heatmap_toggle_action') and self.heatmap_toggle_action.isChecked():
             self._update_heatmap_network_menu()
-        
+
         # Update status
         ap_count = len(scan_point.ap_list)
         self.status_label.setText(f"Scan point added - {ap_count} access points detected")
@@ -937,17 +937,17 @@ class MainWindow(QMainWindow):
     def _on_status_update(self, message):
         """Handle status message updates from map view"""
         self.status_label.setText(message)
-    
+
     def _check_save_current_project(self):
         """
         Check if the current project needs to be saved before proceeding.
-        
+
         Returns:
             bool: True to proceed, False to cancel the operation
         """
         if self.current_project is None or not self.project_modified:
             return True
-            
+
         reply = QMessageBox.question(
             self,
             "Save Changes?",
@@ -956,7 +956,7 @@ class MainWindow(QMainWindow):
             QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
             QMessageBox.Save
         )
-        
+
         if reply == QMessageBox.Save:
             self._save_project()
             return not self.project_modified  # Only proceed if save was successful
@@ -964,18 +964,18 @@ class MainWindow(QMainWindow):
             return True
         else:  # Cancel
             return False
-    
+
     def _update_window_title(self):
         """Update the main window title to reflect current project status."""
         base_title = self.i18n.get_string("app_title_placeholder")
-        
+
         if self.current_project is None:
             self.setWindowTitle(base_title)
         else:
             site_name = self.current_project.site_info.site_name or "Unnamed Site"
             modified_indicator = "*" if self.project_modified else ""
             self.setWindowTitle(f"{base_title} - {site_name}{modified_indicator}")
-    
+
     def _mark_project_modified(self):
         """Mark the current project as having unsaved changes."""
         if not self.project_modified:
@@ -1187,11 +1187,11 @@ if __name__ == '__main__':
         painter.setPen(QPen(Qt.black, 2)) # Black pen for drawing lines
 
         # Draw a topmost horizontal line (length 1700px)
-        painter.drawLine(100, 200, 1800, 200) 
+        painter.drawLine(100, 200, 1800, 200)
 
         # Draw leftmost and rightmost vertical lines (length 950px each)
-        painter.drawLine(100, 50, 100, 1000) 
-        painter.drawLine(1800, 50, 1800, 1000) 
+        painter.drawLine(100, 50, 100, 1000)
+        painter.drawLine(1800, 50, 1800, 1000)
 
         painter.end()
         dummy_image.save(temp_test_image_path)
