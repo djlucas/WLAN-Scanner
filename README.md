@@ -6,14 +6,20 @@ A desktop application built with Python and PyQt5 for conducting Wi-Fi site surv
 
 **Current Status: Data Visualization Phase (~75% Complete)**
 
-The application now features complete interactive survey functionality with project persistence and initial heatmap visualization. Professional WiFi site survey workflow is fully operational.
+The application now features complete interactive survey functionality with project persistence, live WiFi scanning, and advanced heatmap visualization. Professional WiFi site survey workflow is fully operational with real-time signal analysis and optimized performance.
 
 ### ✅ **Recently Completed Features**
-- **✨ Project Persistence**: Complete save/load functionality with ZIP-based .wls project format
-- **✨ Signal Strength Heatmaps**: Real-time circular coverage visualization with proper color mapping
-- **✨ View Menu Integration**: Toggle heatmaps and select specific networks for visualization
-- **✨ Empirical Signal Modeling**: Uses actual placed AP locations for realistic signal simulation
-- **✨ Fixed Color Bug**: Proper green/yellow/orange/red signal strength colors (no more blue artifacts)
+- **✨ Live WiFi Scanning**: Real WiFi network scanning with platform-specific scripts (Linux/Windows)
+- **✨ Advanced Heatmap Engine**: Complete rewrite using AP source location estimation and signal propagation modeling
+- **✨ Empirical Signal Analysis**: Uses real scan measurements to estimate AP locations and generate accurate coverage maps
+- **✨ Signal Propagation Physics**: Implements path loss models (0.5 dB/ft for 2.4GHz, 0.6 dB/ft for 5GHz) based on empirical data
+- **✨ Interactive Progress Feedback**: Real-time status updates during heatmap generation with multi-stage progress indication
+- **✨ Enhanced Scan Point Management**: Right-click context menus for scan points with data viewing and management options
+- **🐛 Zoom Performance Optimization**: Fixed QPainter segfault and eliminated heatmap recalculation during zoom operations
+- **🐛 Interactive Map Stability**: Added safety checks and exception handling for painting operations
+- **🚀 Performance Improvements**: Optimized heatmap generation (~5s) and eliminated double-generation issues
+- **🎯 Enhanced User Experience**: Comprehensive status messaging, scroll bar navigation, and fit-to-window defaults
+- **🔧 UI/UX Polish**: Custom status bar with legend, improved progress indicators, and internationalization support
 
 ### ✅ **Core Implemented Features**
 - **Application Framework**: Complete PyQt5 application with debug modes
@@ -27,25 +33,26 @@ The application now features complete interactive survey functionality with proj
 - **User Interface**: Full menu system, dialogs, and preferences management
 - **Interactive Map Interface**: Right-click context menus for AP placement and scanning
 - **AP Management**: Visual AP placement with drag-and-drop repositioning
-- **Scan Point System**: Add simulated scan points with network detection data
+- **Multi-Floor Navigation**: Floor selector dropdown for projects with multiple floors
+- **Real-Time WiFi Scanning**: Live network detection with platform-specific optimization
+- **Signal Strength Heatmaps**: Visual coverage maps with SSID-based network selection and progress tracking
 - **Smart Workflow**: Immediate scan offers after AP placement with visual status indicators
 - **Scan Data Management**: Clear and refresh scan data while preserving AP layouts
+- **Advanced Map Controls**: Zoom with scroll bar navigation, fit-to-window defaults, and optimized rendering
 - **Dual-Mode Scanning**: Empirical measurement analysis (V1) + theoretical RF prediction (V2 future)
 
-### 🟡 **Partially Implemented**
-- **Data Visualization**: Heatmaps implemented, AP data tables pending
-- **Floor Management**: Can import and display floors, multi-floor navigation pending
-
 ### ❌ **Missing Core Features**
-- **Live WiFi Scanning**: Integration with actual wireless network scanning (simulated scanning works perfectly)
-- **AP Data Tables**: Sortable/filterable tables of scan results
-- **Report Generation**: PDF reporting system not implemented
+- **PDF Report Generation**: Professional reporting system with multiple output formats
+  - **Executive Reports**: High-level coverage summaries with key metrics and recommendations
+  - **Technical Reports**: Detailed signal analysis with AP specifications and measurement data
+  - **Interference Analysis**: Channel utilization maps showing peak signal values across all channels
+  - **Multi-Map Integration**: Floor plans, coverage heatmaps, and interference visualizations
 
 ### 🎯 **Next Development Priorities**
-1. **Empirical Measurement Engine**: BSSID-to-AP association based on real scan data (V1 focus)
-2. **AP Data Tables**: Sortable tables with signal strength analysis and network details  
-3. **Live WiFi Integration**: Connect with actual `get-wlans.ps1`/`get-wlans.sh` scripts
-4. **Report Generation**: Professional PDF reports with maps, heatmaps, and analysis
+1. **Interference Map Engine**: Channel utilization analysis with peak signal aggregation across all detected networks
+2. **Executive Report System**: High-level PDF reports with coverage summaries, key metrics, and professional recommendations
+3. **Technical Report System**: Detailed PDF reports with comprehensive signal analysis, AP specifications, and measurement tables
+4. **Multi-Map PDF Integration**: Embedding floor plans, signal heatmaps, and interference visualizations in report outputs
 
 ### 🔄 **V1/V2 Architecture**
 - **V1 (Current)**: Empirical measurement-driven analysis using real scan data for accurate site assessment
@@ -62,8 +69,8 @@ The application now features complete interactive survey functionality with proj
 
 #### **Scanning Workflow:**
 1. Right-click to place AP → Enter name → Choose to scan immediately
-2. For existing APs: Right-click → "Scan at This AP" or "Rescan at This AP"  
-3. Bulk operations: "Scan at All AP Locations" or "Clear All AP Scan Data"
+2. For existing APs: Right-click → "Scan at This AP" or "Rescan at This AP"
+3. Bulk operations: "Clear All AP Scan Data" to reset survey data
 4. Visual feedback: Scan points show as green circles with detected AP counts
 
 #### **Site Survey Management:**
@@ -71,7 +78,7 @@ The application now features complete interactive survey functionality with proj
 - **Site Refresh**: "Clear All AP Scan Data" → Re-scan locations for updated data
 - **Flexible Layout**: Keep AP positions while refreshing scan data as needed
 
-**Current State**: The application provides a complete interactive survey interface with simulated scanning. Ready for live WiFi integration.
+**Current State**: The application provides a complete interactive survey interface with live WiFi scanning and advanced heatmap visualization. Ready for professional site surveys.
 
 ## 🛠️ Prerequisites
 
@@ -149,7 +156,6 @@ python main.py
 
 3. **Manage Scans**:
    - Right-click existing APs for context menu options
-   - Use "Scan at All AP Locations" for bulk scanning
    - "Clear All AP Scan Data" to refresh survey data
 
 4. **Interactive Navigation**:

@@ -272,18 +272,8 @@ class HeatmapGenerator:
         if not scan_points:
             return self._create_empty_heatmap()
         
-        # Report progress
-        if status_callback:
-            status_callback("analyzing_scan_data_status")
-            time.sleep(1.0)  # Pause to show message
-            
         # Find all APs for the target network from scan data
         ap_locations = self._identify_ap_locations(scan_points, target_network, floor)
-        
-        # Report progress
-        if status_callback:
-            status_callback("estimating_ap_locations_status")
-            time.sleep(1.0)  # Pause to show message
         
         if not ap_locations:
             return self._create_empty_heatmap()
@@ -292,13 +282,19 @@ class HeatmapGenerator:
         pixmap.fill(Qt.transparent)
 
         # Create signal strength grid to determine strongest signal at each point
-        signal_grid = self._create_signal_strength_grid(ap_locations)
-        
+        if status_callback:
+            status_callback(10, target_network)
+
+        signal_grid = self._create_signal_strength_grid(ap_locations, target_network, status_callback)
+
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         # Draw the signal strength grid as colored pixels
         self._draw_signal_grid(painter, signal_grid)
+
+        if status_callback:
+            status_callback(100, target_network)
 
         painter.end()
         return pixmap
@@ -402,7 +398,7 @@ class HeatmapGenerator:
             'placed_ap': None  # This is an estimated location, not a placed AP
         }
 
-    def _create_signal_strength_grid(self, ap_locations):
+    def _create_signal_strength_grid(self, ap_locations, target_network=None, progress_callback=None):
         """
         Create a grid where each cell contains the strongest signal at that location.
         
@@ -420,15 +416,24 @@ class HeatmapGenerator:
         # Initialize with very weak signal
         signal_grid = np.full((grid_height, grid_width), -999.0)
         
+        # Calculate progress increment for each row
+        pct = 20
+        pct_increment = 80 / grid_height
+
         # For each grid cell, calculate signal from all APs and take the strongest
         for row in range(grid_height):
+            # Report progress for each row processed
+            if progress_callback:
+                progress_callback(int(pct), target_network)
+                pct += pct_increment
+
             for col in range(grid_width):
                 # Convert grid coordinates to pixel coordinates (center of cell)
                 pixel_x = col * grid_resolution + grid_resolution // 2
                 pixel_y = row * grid_resolution + grid_resolution // 2
-                
+
                 strongest_signal = -999
-                
+
                 # Check signal strength from each AP at this location
                 for ap_location in ap_locations:
                     signal = self._calculate_signal_at_point(
@@ -436,7 +441,7 @@ class HeatmapGenerator:
                     )
                     if signal > strongest_signal:
                         strongest_signal = signal
-                
+
                 # Only store if signal is above minimum threshold
                 if strongest_signal > -95:
                     signal_grid[row, col] = strongest_signal

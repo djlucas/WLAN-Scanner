@@ -13,12 +13,12 @@
 # -----------------------------------------------------------------------------
 
 import datetime
-import random
+# import random  # Removed - no longer needed without simulation fallback
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction, QDialog, QScrollArea, QPushButton, QApplication
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent
 from .data_models import PlacedAP, ScanPoint
-from .scan_simulator import ScanSimulator
+# from .scan_simulator import ScanSimulator  # Removed for V1, will be used in V2 for predictive heatmaps
 from .wifi_scanner import WiFiScanner, WiFiScanError
 from .heatmap_generator import HeatmapGenerator
 
@@ -30,6 +30,7 @@ class InteractiveMapView(QWidget):
     # Signals
     ap_placed = pyqtSignal(object)  # Emitted when an AP is placed
     scan_point_added = pyqtSignal(object)  # Emitted when a scan point is added
+    status_message = pyqtSignal(str)  # Emitted to update main window status bar
     
     def __init__(self, i18n_manager, debug_mode=False, parent=None):
         """
@@ -57,38 +58,41 @@ class InteractiveMapView(QWidget):
         
         # UI state
         self.placement_mode = "ap"  # "ap" or "scan_point"
+        self.left_click_mode = None  # None, "place_ap", or "live_scan" - for menu-triggered left-click modes
         self.dragging_ap = None
         self.drag_offset = QPoint(0, 0)
         self.right_click_position = QPoint(0, 0)  # Store right-click position for context menu
+
+        # Zoom functionality
+        self.zoom_level = 1.0  # 1.0 = 100%, 0.5 = 50%, 2.0 = 200%
+        self.min_zoom = 0.25   # 25% minimum zoom
+        self.max_zoom = 4.0    # 400% maximum zoom
+        self.zoom_step = 0.25  # 25% zoom increments
         
         
-        # Simulator for testing
-        # Initialize both live scanner and simulator for fallback
+        # WiFi Scanner for live scanning only
         self.wifi_scanner = WiFiScanner()
-        self.simulator = ScanSimulator(seed=42)  # Fallback for testing
         self.use_live_scanning = self.wifi_scanner.is_available()
         
         self._init_ui()
         
     def _init_ui(self):
         """Initialize the user interface"""
-        layout = QVBoxLayout(self)
-        
+        # Remove the layout - make this widget just contain the label directly
         # Main map display label
-        self.map_label = QLabel()
+        self.map_label = QLabel(self)
         self.map_label.setAlignment(Qt.AlignCenter)
         self.map_label.setStyleSheet("QLabel { border: 1px solid #ccc; background-color: #f0f0f0; }")
         self.map_label.setMinimumSize(800, 600)
         self.map_label.mousePressEvent = self._map_mouse_press
         self.map_label.mouseMoveEvent = self._map_mouse_move
         self.map_label.mouseReleaseEvent = self._map_mouse_release
-        
-        layout.addWidget(self.map_label)
-        
-        # Status label
-        self.status_label = QLabel("🔵 Blue APs = Scanned • 🟠 Orange APs = Need scanning • Right-click to place/scan • Drag APs to move")
-        self.status_label.setStyleSheet("QLabel { padding: 5px; background-color: #e8f4f8; }")
-        layout.addWidget(self.status_label)
+
+        # Position the label to fill this widget
+        self.map_label.move(0, 0)
+
+        # Set the widget size to match the label size
+        self.setMinimumSize(800, 600)
         
     def set_floor(self, floor):
         """
@@ -100,31 +104,10 @@ class InteractiveMapView(QWidget):
         self.current_floor = floor
         self._load_floor_image()
         
-        # Update simulator with actual placed APs
-        if floor and hasattr(floor, 'placed_aps') and floor.placed_aps:
-            self.simulator = ScanSimulator(
-                seed=42, 
-                floor_width=self.width(), 
-                floor_height=self.height(),
-                placed_aps=floor.placed_aps
-            )
-        else:
-            # Fallback to simulated APs if no placed APs
-            self.simulator = ScanSimulator(seed=42)
+        # Floor data updated - ready for live WiFi scanning
             
         self._render_map()
     
-    def _refresh_simulator(self):
-        """Refresh the simulator with current placed APs"""
-        if self.current_floor and hasattr(self.current_floor, 'placed_aps') and self.current_floor.placed_aps:
-            self.simulator = ScanSimulator(
-                seed=42,
-                floor_width=self.width() if self.width() > 0 else 1920,
-                floor_height=self.height() if self.height() > 0 else 1080,
-                placed_aps=self.current_floor.placed_aps
-            )
-        else:
-            self.simulator = ScanSimulator(seed=42)
         
     def _load_floor_image(self):
         """Load the floor plan image"""
@@ -150,27 +133,45 @@ class InteractiveMapView(QWidget):
             
         # Create a copy of the base image to draw on
         self.display_pixmap = self.base_pixmap.copy()
+
+        # Ensure the pixmap is valid before painting
+        if self.display_pixmap.isNull():
+            return
+
         painter = QPainter(self.display_pixmap)
+
+        # Check if painter is valid
+        if not painter.isActive():
+            return
+
+        try:
+            # Draw heatmap overlay if enabled
+            if self.heatmap_enabled:
+                self._draw_heatmap_overlay(painter)
+
+            # Draw placed APs
+            self._draw_placed_aps(painter)
+
+            # Draw scan points
+            self._draw_scan_points(painter)
+        finally:
+            # Ensure painter is always properly ended
+            if painter.isActive():
+                painter.end()
         
-        # Draw heatmap overlay if enabled
-        if self.heatmap_enabled:
-            self._draw_heatmap_overlay(painter)
-        
-        # Draw placed APs
-        self._draw_placed_aps(painter)
-        
-        # Draw scan points
-        self._draw_scan_points(painter)
-        
-        painter.end()
-        
-        # Scale to fit the label
+        # Scale to actual zoom level, not to fit label
+        original_size = self.base_pixmap.size()
+        zoom_size = original_size * self.zoom_level
         scaled_pixmap = self.display_pixmap.scaled(
-            self.map_label.size(),
+            zoom_size,
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation
         )
-        
+
+        # Resize widget and label to match zoom
+        self.map_label.setFixedSize(zoom_size)
+        self.setFixedSize(zoom_size)
+
         self.map_label.setPixmap(scaled_pixmap)
         self.map_label.setText("")  # Clear any text
         
@@ -212,28 +213,29 @@ class InteractiveMapView(QWidget):
         """Draw scan point markers on the map"""
         if not self.current_floor or not self.current_floor.scan_points:
             return
-            
-        for scan_point in self.current_floor.scan_points:
+
+        for i, scan_point in enumerate(self.current_floor.scan_points):
             x, y = int(scan_point.map_x), int(scan_point.map_y)
-            
+
             # Draw scan point marker (small green circle)
             painter.setPen(QPen(QColor(0, 150, 0), 2))
             painter.setBrush(QBrush(QColor(0, 200, 0, 150)))
             painter.drawEllipse(x - 6, y - 6, 12, 12)
-            
-            # Draw number of detected APs
-            ap_count = len(scan_point.ap_list)
+
+            # Draw sequential scan point number (1-based)
+            scan_number = i + 1
             painter.setPen(QPen(QColor(0, 0, 0)))
-            painter.drawText(x - 10, y + 20, 20, 10, Qt.AlignCenter, str(ap_count))
+            painter.drawText(x - 10, y + 20, 20, 10, Qt.AlignCenter, str(scan_number))
     
     def _draw_heatmap_overlay(self, painter):
         """Draw heatmap overlay on the map"""
         if not self.current_floor or not self.current_floor.scan_points:
             return
-            
-        # Generate or update heatmap
-        self._update_heatmap()
-        
+
+        # Only generate heatmap if we don't have one yet
+        if not self.heatmap_pixmap or self.heatmap_pixmap.isNull():
+            self._update_heatmap()
+
         if self.heatmap_pixmap and not self.heatmap_pixmap.isNull():
             # Draw the heatmap overlay
             painter.setOpacity(0.6)  # Semi-transparent overlay
@@ -253,7 +255,8 @@ class InteractiveMapView(QWidget):
             self.heatmap_generator.height = height
         
         # Generate heatmap with progress indication
-        self.status_label.setText(self.i18n.get_string("generating_heatmap_status"))
+        # Show status for heatmap generation
+        self._update_status("Generating signal strength heatmap...")
         
         # Force UI update to show status message immediately
         QApplication.processEvents()
@@ -269,9 +272,10 @@ class InteractiveMapView(QWidget):
             status_callback=self._heatmap_progress_callback
         )
         
-        # Clear progress message - restore normal status
-        scan_status = "Live WiFi" if self.use_live_scanning else "Simulated"
-        self.status_label.setText(self.i18n.get_string("status_legend").format(scan_status=scan_status))
+        # Clear progress message - show completion
+        network_display = self.current_heatmap_network or "unknown network"
+        completion_message = self.i18n.get_string("heatmap_progress_completed").format(network=network_display)
+        self._update_status(completion_message)
         
         if self.debug_mode:
             networks = self.heatmap_generator.get_connected_networks(self.current_floor.scan_points)
@@ -299,13 +303,171 @@ class InteractiveMapView(QWidget):
             if self.debug_mode:
                 network_name = network_ssid if network_ssid else "Strongest Signal"
                 print(f"DEBUG: Heatmap network set to: {network_name}")
+
+    def set_heatmap_network_and_enable(self, network_ssid: str = None, enabled: bool = True):
+        """Set both heatmap network and enabled state in a single operation to avoid double generation"""
+        network_changed = self.current_heatmap_network != network_ssid
+        enabled_changed = self.heatmap_enabled != enabled
+
+        # Update both states
+        self.current_heatmap_network = network_ssid
+        self.heatmap_enabled = enabled
+
+        # Only generate heatmap once if either changed and heatmap is now enabled
+        if (network_changed or enabled_changed) and self.heatmap_enabled:
+            self._update_heatmap()
+            self._render_map()
+
+        if self.debug_mode:
+            network_name = network_ssid if network_ssid else "Strongest Signal"
+            print(f"DEBUG: Heatmap network set to: {network_name}, enabled: {enabled}")
+
+    def set_left_click_mode(self, mode: str = None):
+        """Set the left-click mode for menu-triggered placement"""
+        self.left_click_mode = mode
+        if self.debug_mode:
+            print(f"DEBUG: Left-click mode set to: {mode}")
+
+    def wheelEvent(self, event):
+        """Handle mouse wheel events for Ctrl+wheel zoom"""
+        # Only zoom if Ctrl is held down
+        if event.modifiers() & Qt.ControlModifier:
+            # Get wheel delta (positive = zoom in, negative = zoom out)
+            delta = event.angleDelta().y()
+
+            if delta > 0:
+                self._zoom_in_at_cursor(event.pos())
+            elif delta < 0:
+                self._zoom_out_at_cursor(event.pos())
+
+            event.accept()
+        else:
+            # Let parent handle normal scrolling
+            super().wheelEvent(event)
+
+    def zoom_in(self):
+        """Zoom in (called from menu)"""
+        if self.zoom_level < self.max_zoom:
+            self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
+            self._apply_zoom()
+            self._emit_zoom_changed()
+
+    def zoom_out(self):
+        """Zoom out (called from menu)"""
+        if self.zoom_level > self.min_zoom:
+            self.zoom_level = max(self.min_zoom, self.zoom_level - self.zoom_step)
+            self._apply_zoom()
+            self._emit_zoom_changed()
+
+    def _zoom_in_at_cursor(self, cursor_pos):
+        """Zoom in at cursor position"""
+        if self.zoom_level < self.max_zoom:
+            self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
+            self._apply_zoom()
+            self._emit_zoom_changed()
+
+    def _zoom_out_at_cursor(self, cursor_pos):
+        """Zoom out at cursor position"""
+        if self.zoom_level > self.min_zoom:
+            self.zoom_level = max(self.min_zoom, self.zoom_level - self.zoom_step)
+            self._apply_zoom()
+            self._emit_zoom_changed()
+
+    def _apply_zoom(self):
+        """Apply current zoom level to the display"""
+        if not self.base_pixmap:
+            return
+
+        # Calculate the actual size based on zoom level
+        original_size = self.base_pixmap.size()
+        new_size = original_size * self.zoom_level
+
+        # Resize both the label and the container widget
+        self.map_label.setFixedSize(new_size)
+        self.setFixedSize(new_size)  # Resize the container widget too
+
+        # Scale the display_pixmap to the actual zoom size (no fitting)
+        if self.display_pixmap and not self.display_pixmap.isNull():
+            # Scale to actual zoom size, not to fit label
+            scaled_pixmap = self.display_pixmap.scaled(
+                new_size,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self.map_label.setPixmap(scaled_pixmap)
+        else:
+            # If no display_pixmap exists, render the map once
+            self._render_map()
+
+    def _emit_zoom_changed(self):
+        """Emit zoom level change to update status bar"""
+        zoom_percent = int(self.zoom_level * 100)
+
+        # Find the main window to update zoom display
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, 'update_zoom_display'):
+                parent.update_zoom_display(zoom_percent)
+                break
+            parent = parent.parent()
+
+        if self.debug_mode:
+            print(f"DEBUG: Zoom level changed to {zoom_percent}%")
+
+    def fit_to_window(self, window_size):
+        """Fit the map to the specified window size"""
+        if not self.base_pixmap:
+            return
+
+        # Calculate zoom level to fit the image within the window
+        original_size = self.base_pixmap.size()
+
+        # Calculate scale factors for both width and height
+        width_scale = window_size.width() / original_size.width()
+        height_scale = window_size.height() / original_size.height()
+
+        # Use the smaller scale to ensure entire image fits
+        fit_zoom = min(width_scale, height_scale)
+
+        # Clamp to zoom limits
+        self.zoom_level = max(self.min_zoom, min(self.max_zoom, fit_zoom))
+
+        self._apply_zoom()
+        self._emit_zoom_changed()
+
+        if self.debug_mode:
+            print(f"DEBUG: Fit to window - zoom level set to {int(self.zoom_level * 100)}%")
+
+    def _update_status(self, message):
+        """Emit status message to main window"""
+        self.status_message.emit(message)
     
     def get_available_networks(self):
         """Get list of networks available for heatmap display"""
         if not self.current_floor or not self.current_floor.scan_points:
             return []
-            
+
         return self.heatmap_generator.get_connected_networks(self.current_floor.scan_points)
+
+    def get_strongest_network_ssid(self):
+        """Get the SSID of the strongest network from scan data"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            return None
+
+        # Find the SSID with the strongest signal strength
+        strongest_signal = -999
+        strongest_ssid = None
+
+        for scan_point in self.current_floor.scan_points:
+            if not scan_point.ap_list:
+                continue
+
+            for ap in scan_point.ap_list:
+                if ap.signal_strength > strongest_signal:
+                    strongest_signal = ap.signal_strength
+                    strongest_ssid = ap.ssid
+
+        return strongest_ssid
     
     def _map_mouse_press(self, event):
         """Handle mouse press events on the map"""
@@ -327,14 +489,22 @@ class InteractiveMapView(QWidget):
         elif event.button() == Qt.LeftButton:
             if self.debug_mode:
                 print(f"DEBUG: Left mouse click at map coords ({x}, {y})")
-            
+
+            # Check if we're in a special left-click mode from menu
+            if self.left_click_mode == 'place_ap':
+                self._place_ap_at_position(x, y)
+                return
+            elif self.left_click_mode == 'live_scan':
+                self._add_scan_point_at_position(x, y)
+                return
+
             # Check if clicking on an existing AP for dragging
             clicked_ap = self._get_ap_at_position(x, y)
             if clicked_ap:
                 self.dragging_ap = clicked_ap
                 self.drag_offset = QPoint(x - int(clicked_ap.map_x), y - int(clicked_ap.map_y))
                 return
-            
+
             # Left-click on empty space does nothing - use right-click for placement
     
     def _map_mouse_move(self, event):
@@ -358,8 +528,6 @@ class InteractiveMapView(QWidget):
     def _map_mouse_release(self, event):
         """Handle mouse release events"""
         if self.dragging_ap:
-            # Refresh simulator after AP position change
-            self._refresh_simulator()
             
             if self.debug_mode:
                 print(f"DEBUG: AP '{self.dragging_ap.name}' moved to ({self.dragging_ap.map_x}, {self.dragging_ap.map_y})")
@@ -401,8 +569,9 @@ class InteractiveMapView(QWidget):
             
         elif clicked_scan_point:
             # Menu options for existing scan point
+            scan_point_index = self.current_floor.scan_points.index(clicked_scan_point) + 1
             networks_count = len(clicked_scan_point.ap_list) if clicked_scan_point.ap_list else 0
-            context_menu.addAction(self.i18n.get_string("scan_point_info").format(count=networks_count), lambda: None).setEnabled(False)  # Info only
+            context_menu.addAction(f"Scan Point {scan_point_index} ({networks_count} networks)", lambda: None).setEnabled(False)  # Info only
             context_menu.addAction(self.i18n.get_string("rescan_at_this_location"), lambda: self._rescan_scan_point(clicked_scan_point))
             context_menu.addAction(self.i18n.get_string("show_scan_data"), lambda: self._show_scan_point_data(clicked_scan_point))
             context_menu.addSeparator()
@@ -461,7 +630,8 @@ class InteractiveMapView(QWidget):
             old_name = ap.name
             ap.name = new_name.strip()
             self._render_map()
-            self.status_label.setText(self.i18n.get_string("ap_renamed_status").format(old_name=old_name, ap_name=ap.name))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("ap_renamed_status").format(old_name=old_name, ap_name=ap.name))
             
             if self.debug_mode:
                 print(f"DEBUG: AP renamed from '{old_name}' to '{ap.name}'")
@@ -484,7 +654,8 @@ class InteractiveMapView(QWidget):
         if reply == QMessageBox.Yes:
             self.current_floor.placed_aps.remove(ap)
             self._render_map()
-            self.status_label.setText(self.i18n.get_string("ap_removed_status").format(ap_name=ap.name))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("ap_removed_status").format(ap_name=ap.name))
             
             if self.debug_mode:
                 print(f"DEBUG: AP '{ap.name}' removed from floor")
@@ -605,8 +776,7 @@ class InteractiveMapView(QWidget):
         # Add to current floor
         self.current_floor.placed_aps.append(new_ap)
         
-        # Refresh simulator with updated AP locations
-        self._refresh_simulator()
+        # AP locations updated - ready for scanning
         
         # Re-render map
         self._render_map()
@@ -634,7 +804,8 @@ class InteractiveMapView(QWidget):
             if existing_point:
                 self.current_floor.scan_points.remove(existing_point)
         
-        self.status_label.setText(self.i18n.get_string("scanning_at_location_status").format(x=x, y=y))
+        # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("scanning_at_location_status").format(x=x, y=y))
         
         try:
             if self.use_live_scanning:
@@ -643,10 +814,9 @@ class InteractiveMapView(QWidget):
                 ap_data_list = self.wifi_scanner.scan(timeout=30)
                 scan_type = "Live"
             else:
-                # Fall back to simulated data
-                print(f"WiFi scanning not available, using simulated data at ({x}, {y})")
-                ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
-                scan_type = "Simulated"
+                # No fallback - show error if WiFi scanning not available
+                QMessageBox.warning(self, "WiFi Scanner Error", "WiFi scanning is not available on this system.")
+                return
             
             # Create scan point
             scan_point = ScanPoint(
@@ -670,7 +840,8 @@ class InteractiveMapView(QWidget):
             self.scan_point_added.emit(scan_point)
             
             # Update status
-            self.status_label.setText(self.i18n.get_string("scan_completed_status").format(scan_type=scan_type, x=x, y=y, count=len(ap_data_list)))
+            # Update status with scan completion
+            self._update_status(f"Live scan completed at ({x}, {y}) - {len(ap_data_list)} access points detected")
             
             if self.debug_mode:
                 print(f"DEBUG: Added {scan_type.lower()} scan point at ({x}, {y}) with {len(ap_data_list)} APs")
@@ -679,33 +850,18 @@ class InteractiveMapView(QWidget):
             # Handle scan errors gracefully
             error_msg = f"WiFi scan failed at ({x}, {y}): {e}"
             print(f"ERROR: {error_msg}")
-            self.status_label.setText(self.i18n.get_string("scan_failed_status").format(x=x, y=y))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("scan_failed_status").format(x=x, y=y))
             
-            # Fall back to simulated data
-            ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=x, scan_y=y)
-            
-            scan_point = ScanPoint(
-                map_x=x,
-                map_y=y,
-                timestamp=datetime.datetime.now(),
-                ap_list=ap_data_list
-            )
-            
-            self.current_floor.scan_points.append(scan_point)
-            
-            if self.heatmap_enabled:
-                self._update_heatmap()
-            self._render_map()
-            self.scan_point_added.emit(scan_point)
-            
-            # Show error to user
-            QMessageBox.warning(self, "WiFi Scan Error", 
-                              f"Live WiFi scanning failed:\n{e}\n\nFalling back to simulated data.")
+            # Show error to user - no fallback
+            QMessageBox.warning(self, "WiFi Scan Error",
+                              f"Live WiFi scanning failed:\n{e}")
         except Exception as e:
             # Handle unexpected errors
             error_msg = f"Unexpected error during scan at ({x}, {y}): {e}"
             print(f"ERROR: {error_msg}")
-            self.status_label.setText(self.i18n.get_string("scan_error_status").format(x=x, y=y))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("scan_error_status").format(x=x, y=y))
             QMessageBox.critical(self, "Scan Error", error_msg)
     
     def set_placement_mode(self, mode):
@@ -717,8 +873,9 @@ class InteractiveMapView(QWidget):
         """
         self.placement_mode = mode  # Keep for legacy compatibility
         # Show scanning status in the label
-        scan_status = "Live WiFi" if self.use_live_scanning else "Simulated"
-        self.status_label.setText(self.i18n.get_string("status_legend").format(scan_status=scan_status))
+        scan_status = "Live WiFi" if self.use_live_scanning else "Not Available"
+        # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("status_legend").format(scan_status=scan_status))
         
         if self.debug_mode:
             print(f"DEBUG: Placement mode set to: {mode} (but all placement now via right-click)")
@@ -728,7 +885,8 @@ class InteractiveMapView(QWidget):
         if self.current_floor:
             self.current_floor.placed_aps.clear()
             self._render_map()
-            self.status_label.setText(self.i18n.get_string("all_aps_cleared_status"))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("all_aps_cleared_status"))
     
     def clear_all_scan_points(self):
         """Remove all scan points from the current floor"""
@@ -738,7 +896,8 @@ class InteractiveMapView(QWidget):
             if self.heatmap_enabled:
                 self._update_heatmap()
             self._render_map()
-            self.status_label.setText(self.i18n.get_string("all_scan_points_cleared_status"))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("all_scan_points_cleared_status"))
     
     
     def _clear_all_scan_data(self):
@@ -775,9 +934,13 @@ class InteractiveMapView(QWidget):
             parts.append(f"scan data from {cleared_ap_data} APs")
         
         if parts:
-            self.status_label.setText(self.i18n.get_string("cleared_scan_data_status").format(parts=' and '.join(parts)))
+            # Status updates now handled by main window
+            # self.status_label.setText(self.i18n.get_string("cleared_scan_data_status").format(parts=' and '.join(parts)))
+            pass
         else:
-            self.status_label.setText(self.i18n.get_string("no_scan_data_to_clear_status"))
+            # Status updates now handled by main window
+            # self.status_label.setText(self.i18n.get_string("no_scan_data_to_clear_status"))
+            pass
         
         if self.debug_mode:
             print(f"DEBUG: Cleared {cleared_scan_points} scan points and scan data from {cleared_ap_data} APs")
@@ -789,7 +952,8 @@ class InteractiveMapView(QWidget):
         Args:
             ap (PlacedAP): The AP to scan at
         """
-        self.status_label.setText(self.i18n.get_string("scanning_at_ap_status").format(ap_name=ap.name))
+        # Update status for AP scanning
+        self._update_status(f"Scanning at AP '{ap.name}'...")
         
         try:
             if self.use_live_scanning:
@@ -798,10 +962,9 @@ class InteractiveMapView(QWidget):
                 ap_data_list = self.wifi_scanner.scan(timeout=30)
                 scan_type = "Live"
             else:
-                # Fall back to simulated data
-                print(f"WiFi scanning not available, using simulated data for AP '{ap.name}'")
-                ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
-                scan_type = "Simulated"
+                # No fallback - show error if WiFi scanning not available
+                QMessageBox.warning(self, "WiFi Scanner Error", "WiFi scanning is not available on this system.")
+                return
             
             # Create scan point at AP location
             scan_point = ScanPoint(
@@ -821,7 +984,8 @@ class InteractiveMapView(QWidget):
             self._render_map()
             
             # Update status
-            self.status_label.setText(self.i18n.get_string("ap_scan_completed_status").format(scan_type=scan_type, ap_name=ap.name, count=len(ap_data_list)))
+            # Update status with AP scan completion
+            self._update_status(f"Live scan at AP '{ap.name}' completed - {len(ap_data_list)} access points detected")
             
             if self.debug_mode:
                 print(f"DEBUG: Added {scan_type.lower()} scan point at AP '{ap.name}' ({ap.map_x}, {ap.map_y}) with {len(ap_data_list)} APs")
@@ -830,32 +994,18 @@ class InteractiveMapView(QWidget):
             # Handle scan errors gracefully
             error_msg = f"WiFi scan failed at AP '{ap.name}': {e}"
             print(f"ERROR: {error_msg}")
-            self.status_label.setText(self.i18n.get_string("ap_scan_failed_status").format(ap_name=ap.name))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("ap_scan_failed_status").format(ap_name=ap.name))
             
-            # Fall back to simulated data
-            ap_data_list = self.simulator.generate_ap_data_list(count=random.randint(5, 12), scan_x=ap.map_x, scan_y=ap.map_y)
-            
-            scan_point = ScanPoint(
-                map_x=ap.map_x,
-                map_y=ap.map_y,
-                timestamp=datetime.datetime.now(),
-                ap_list=ap_data_list
-            )
-            
-            self.current_floor.scan_points.append(scan_point)
-            
-            if self.heatmap_enabled:
-                self._update_heatmap()
-            self._render_map()
-            
-            # Show error to user
-            QMessageBox.warning(self, "WiFi Scan Error", 
-                              f"Live WiFi scanning failed:\n{e}\n\nFalling back to simulated data.")
+            # Show error to user - no fallback
+            QMessageBox.warning(self, "WiFi Scan Error",
+                              f"Live WiFi scanning failed:\n{e}")
         except Exception as e:
             # Handle unexpected errors
             error_msg = f"Unexpected error during scan at AP '{ap.name}': {e}"
             print(f"ERROR: {error_msg}")
-            self.status_label.setText(self.i18n.get_string("ap_scan_error_status").format(ap_name=ap.name))
+            # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("ap_scan_error_status").format(ap_name=ap.name))
             QMessageBox.critical(self, "Scan Error", error_msg)
     
     def _clear_ap_scan_data(self, ap):
@@ -869,7 +1019,8 @@ class InteractiveMapView(QWidget):
         ap.timestamp_last_scan = None
         
         # Update status
-        self.status_label.setText(self.i18n.get_string("ap_scan_data_cleared_status").format(ap_name=ap.name))
+        # Status updates now handled by main window
+        # self.status_label.setText(self.i18n.get_string("ap_scan_data_cleared_status").format(ap_name=ap.name))
         
         if self.debug_mode:
             print(f"DEBUG: Cleared scan data from AP '{ap.name}' while keeping placement")
@@ -882,17 +1033,20 @@ class InteractiveMapView(QWidget):
             scan_point (ScanPoint): The scan point to remove
         """
         if scan_point in self.current_floor.scan_points:
+            scan_point_index = self.current_floor.scan_points.index(scan_point) + 1
+            networks_count = len(scan_point.ap_list) if scan_point.ap_list else 0
+
             self.current_floor.scan_points.remove(scan_point)
-            
+
             # Update heatmap if enabled (scan data removed)
             if self.heatmap_enabled:
                 self._update_heatmap()
-            
+
             # Re-render map
             self._render_map()
-            
-            networks_count = len(scan_point.ap_list) if scan_point.ap_list else 0
-            self.status_label.setText(self.i18n.get_string("removed_scan_point_status").format(count=networks_count))
+
+            # Status updates now handled by main window
+        # self.status_label.setText(f"Scan Point {scan_point_index} removed ({networks_count} networks)")
             
             if self.debug_mode:
                 print(f"DEBUG: Removed scan point at ({scan_point.map_x}, {scan_point.map_y}) with {networks_count} networks")
@@ -928,9 +1082,13 @@ class InteractiveMapView(QWidget):
             parts.append(f"{scan_point_count} scan points")
         
         if parts:
-            self.status_label.setText(self.i18n.get_string("removed_items_status").format(parts=' and '.join(parts)))
+            # Status updates now handled by main window
+            # self.status_label.setText(self.i18n.get_string("removed_items_status").format(parts=' and '.join(parts)))
+            pass
         else:
-            self.status_label.setText(self.i18n.get_string("no_aps_to_remove_status"))
+            # Status updates now handled by main window
+            # self.status_label.setText(self.i18n.get_string("no_aps_to_remove_status"))
+            pass
         
         if self.debug_mode:
             print(f"DEBUG: Removed {ap_count} APs and {scan_point_count} scan points - full cleanup")
@@ -955,7 +1113,9 @@ class InteractiveMapView(QWidget):
             self._scan_at_ap(ap)
         else:
             # Update status to show AP was placed but not scanned
-            self.status_label.setText(self.i18n.get_string("ap_placed_no_scan_status").format(ap_name=ap.name, x=int(ap.map_x), y=int(ap.map_y)))
+            # Status updates now handled by main window
+            # self.status_label.setText(self.i18n.get_string("ap_placed_no_scan_status").format(ap_name=ap.name, x=int(ap.map_x), y=int(ap.map_y)))
+            pass
     
     def _has_scan_data(self, ap):
         """
@@ -979,10 +1139,16 @@ class InteractiveMapView(QWidget):
         
         return False
     
-    def _heatmap_progress_callback(self, message_key):
+    def _heatmap_progress_callback(self, percent, network_name):
         """Callback for heatmap generation progress updates"""
-        self.status_label.setText(self.i18n.get_string(message_key))
-        QApplication.processEvents()  # Force UI update
+        # Format progress message using i18n
+        network_display = network_name or "unknown network"
+        progress_message = self.i18n.get_string("heatmap_progress_generating").format(
+            network=network_display,
+            percent=percent
+        )
+        self._update_status(progress_message)
+        QApplication.processEvents()  # Force UI update to show progress immediately
     
     def _rescan_scan_point(self, scan_point):
         """Rescan at an existing scan point location"""
@@ -1070,8 +1236,11 @@ class InteractiveMapView(QWidget):
         
         layout = QVBoxLayout(dialog)
         
+        # Get scan point number
+        scan_point_index = self.current_floor.scan_points.index(scan_point) + 1
+
         # Header info
-        header_label = QLabel(f"Scan Point\nLocation: ({int(scan_point.map_x)}, {int(scan_point.map_y)})\nNetworks detected: {len(scan_point.ap_list) if scan_point.ap_list else 0}")
+        header_label = QLabel(f"Scan Point {scan_point_index}\nLocation: ({int(scan_point.map_x)}, {int(scan_point.map_y)})\nNetworks detected: {len(scan_point.ap_list) if scan_point.ap_list else 0}")
         header_label.setStyleSheet("font-weight: bold; padding: 10px;")
         layout.addWidget(header_label)
         

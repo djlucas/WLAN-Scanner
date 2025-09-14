@@ -51,6 +51,12 @@ default_measurement_system=Imperial
 no_project_loaded_message=No project loaded. Start a new project or open an existing one.
 project_loaded_message=Project '{site_name}' loaded.
 ready_status=Ready
+zoom_label=Zoom:
+
+# Heatmap generation progress
+heatmap_progress_generating=Generating heatmap for '{network}': {percent}%
+heatmap_progress_completed=Heatmap for '{network}' completed
+heatmap_network_strongest=strongest signals
 menu_file=File
 menu_file_new_project=New Project...
 menu_file_open_project=Open Project...

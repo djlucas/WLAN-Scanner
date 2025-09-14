@@ -141,7 +141,7 @@
             "name": "Right-Click Context Menu System",
             "description": "Professional context-sensitive menus for all map interactions",
             "features": [
-              "Right-click empty space: 'Place Access Point Here', 'Run Scan Here (Simulated)', bulk operations",
+              "Right-click empty space: 'Place Access Point Here', 'Run Scan Here (Live/Simulated)', bulk clear operations",
               "Right-click existing AP: Smart menu with Edit, Scan/Rescan, Clear data, Remove options",
               "Context adapts based on AP scan status (scanned vs unscanned)"
             ]
@@ -177,7 +177,7 @@
             "description": "Flexible scan data lifecycle management",
             "features": [
               "Individual AP scan/rescan/clear options",
-              "Bulk operations: 'Scan at All AP Locations', 'Clear All AP Scan Data'",
+              "Bulk operations: 'Clear All AP Scan Data'",
               "Preserve AP layouts while refreshing survey data"
             ]
           }
@@ -282,7 +282,7 @@
       {
         "name": "Floor Management",
         "status": "IMPLEMENTED",
-        "description": "Complete PDF import, cropping, scaling, and scale line definition"
+        "description": "Complete PDF import, cropping, scaling, scale line definition, and multi-floor navigation with dropdown selector"
       },
       {
         "name": "AP Scanning Process",
@@ -342,14 +342,17 @@
       },
       {
         "priority": 4,
-        "task": "Report Generation",
-        "description": "Qt → HTML → PDF pipeline",
+        "task": "Professional Report Generation System",
+        "description": "Multi-format PDF reporting with comprehensive visualization integration",
         "components": [
-          "HTML template system with Jinja2",
-          "Professional report layout with print CSS",
-          "Floor plan and heatmap embedding",
-          "Executive summary with coverage analysis"
-        ]
+          "Executive Report Format: High-level coverage summaries with key metrics and professional recommendations",
+          "Technical Report Format: Detailed signal analysis with AP specifications and measurement tables",
+          "Interference Map Engine: Channel utilization analysis with peak signal aggregation across all detected networks",
+          "Multi-Map PDF Integration: Embedded floor plans, signal heatmaps, and interference visualizations",
+          "Template System: Jinja2-based HTML templates with professional print CSS styling",
+          "Data Export: AP tables, signal strength measurements, and coverage statistics"
+        ],
+        "estimated_effort": "Major development phase - represents ~25% of remaining application functionality"
       }
     ],
     "empirical_observations": {
@@ -446,19 +449,26 @@
   },
   {
     "section_title": "VII. Current Application State",
-    "status": "Interactive Survey Phase (~70% Complete)",
+    "status": "Data Visualization Phase (~75% Complete)",
     "capabilities": [
       "✅ Complete project creation workflow",
-      "✅ PDF floor plan import with cropping and scaling", 
+      "✅ PDF floor plan import with cropping and scaling",
       "✅ Interactive AP placement with right-click context menus",
       "✅ Visual status indicators (blue/orange APs)",
       "✅ Drag-and-drop AP repositioning",
-      "✅ Simulated WiFi scanning with realistic data",
+      "✅ Live WiFi scanning with platform-specific scripts",
+      "✅ Advanced heatmap visualization with empirical signal analysis",
+      "✅ Project save/load functionality with ZIP-based .wls format",
+      "✅ Multi-floor navigation with automatic dropdown selector",
       "✅ Flexible scan data management",
       "✅ Smart workflow with immediate scan prompts",
-      "🔄 Ready for save/load implementation",
-      "🔄 Ready for heatmap visualization development",
-      "🔄 Ready for live WiFi script integration"
+      "✅ Performance-optimized zoom operations without heatmap recalculation",
+      "✅ Robust painting operations with exception safety",
+      "✅ Enhanced user experience with custom status bar and visual legends",
+      "✅ Comprehensive progress indicators with internationalization support",
+      "✅ Optimized heatmap generation (~5s) with elimination of double-generation issues",
+      "✅ Advanced scroll bar navigation with fit-to-window defaults",
+      "✅ SSID-based heatmap network selection and identification"
     ]
   }
 ]
