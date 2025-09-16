@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QDialog, QComboBox, QFileDialog, QActionGroup, QScrollArea
 )
 from PyQt5.QtCore import Qt, QTemporaryDir, QTimer
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QImage
 
 # Local imports from the 'app' package using relative imports
 from .preferences_dialog import PreferencesDialog
@@ -29,6 +29,7 @@ from .scale_line_dialog import ScaleLineDialog
 from .interactive_map_view import InteractiveMapView
 from .data_models import MapProject, SiteInfo, Floor
 from .project_manager import ProjectManager
+from .interference_analyzer import InterferenceAnalyzer
 
 
 class MainWindow(QMainWindow):
@@ -225,6 +226,11 @@ class MainWindow(QMainWindow):
         export_map_image_action.triggered.connect(self._export_map_image)
         report_menu.addAction(export_map_image_action)
 
+        report_menu.addSeparator()
+        interference_analysis_action = QAction("Interference Analysis", self)
+        interference_analysis_action.triggered.connect(self._show_interference_analysis)
+        report_menu.addAction(interference_analysis_action)
+
         # View Menu
         view_menu = menu_bar.addMenu(self.i18n.get_string("menu_view"))
 
@@ -239,6 +245,13 @@ class MainWindow(QMainWindow):
         self.heatmap_network_menu = view_menu.addMenu("Select Heatmap Network")
         self.heatmap_network_menu.setEnabled(False)  # Disabled by default
         self._update_heatmap_network_menu()
+
+        # Interference heatmap toggle
+        self.interference_heatmap_toggle_action = QAction("Show Interference Heatmap", self)
+        self.interference_heatmap_toggle_action.setCheckable(True)
+        self.interference_heatmap_toggle_action.setChecked(False)
+        self.interference_heatmap_toggle_action.triggered.connect(self._toggle_interference_heatmap)
+        view_menu.addAction(self.interference_heatmap_toggle_action)
 
         view_menu.addSeparator()
 
@@ -714,6 +727,55 @@ class MainWindow(QMainWindow):
         else:
             event.ignore()
 
+    def _show_interference_analysis(self):
+        """Show interference analysis results for the current floor"""
+        if self.current_project is None or not self.current_project.floors:
+            QMessageBox.warning(self, "No Project", "No project with floor data is currently loaded.")
+            return
+
+        current_floor = self.current_project.floors[self.current_project.current_floor_index]
+
+        if not current_floor.scan_points:
+            QMessageBox.warning(self, "No Scan Data", "No scan data available for interference analysis. Please add scan points first.")
+            return
+
+        # Run interference analysis
+        analyzer = InterferenceAnalyzer()
+        report = analyzer.analyze_floor(current_floor)
+
+        # Collect all networks for device grouping display
+        all_networks = []
+        for scan_point in current_floor.scan_points:
+            all_networks.extend(scan_point.ap_list)
+
+        summary = analyzer.generate_summary(report, all_networks)
+
+        # Create a dialog to display the results
+        from PyQt5.QtWidgets import QTextEdit, QPushButton, QVBoxLayout
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Interference Analysis - Floor {current_floor.floor_number}")
+        dialog.setMinimumSize(800, 600)
+
+        layout = QVBoxLayout(dialog)
+
+        # Text area for the analysis results
+        text_area = QTextEdit()
+        text_area.setPlainText(summary)
+        text_area.setReadOnly(True)
+        text_area.setFont(self.font())  # Use system monospace font
+        layout.addWidget(text_area)
+
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+
+        dialog.exec_()
+
+        if self.debug_mode:
+            print(f"DEBUG: Interference analysis completed for floor {current_floor.floor_number}")
+
     # Placeholder methods for other menu actions
     def _run_scan(self):
         QMessageBox.information(self, self.i18n.get_string("info_title"),
@@ -863,6 +925,33 @@ class MainWindow(QMainWindow):
 
         if self.debug_mode:
             print(f"DEBUG: Heatmap network set to: {network_name}")
+
+    def _toggle_interference_heatmap(self):
+        """Toggle interference heatmap display on/off"""
+        if self.current_project is None:
+            QMessageBox.warning(self, "No Project", "No project with scan data is currently loaded.")
+            self.interference_heatmap_toggle_action.setChecked(False)
+            return
+
+        # Check if there's scan data available
+        current_floor = self.current_project.floors[self.current_project.current_floor_index]
+        if not current_floor.scan_points:
+            QMessageBox.warning(self, "No Scan Data", "No scan data available for interference heatmap. Please add scan points first.")
+            self.interference_heatmap_toggle_action.setChecked(False)
+            return
+
+        # Get the checked state and toggle interference heatmap
+        interference_heatmap_enabled = self.interference_heatmap_toggle_action.isChecked()
+
+        self.map_view.set_interference_heatmap_enabled(interference_heatmap_enabled)
+
+        if interference_heatmap_enabled:
+            self.status_label.setText("Interference heatmap enabled - showing interference hot spots")
+        else:
+            self.status_label.setText("Interference heatmap disabled")
+
+        if self.debug_mode:
+            print(f"DEBUG: Interference heatmap {'enabled' if interference_heatmap_enabled else 'disabled'}")
 
     def _toggle_place_ap_mode(self):
         """Toggle left-click AP placement mode"""
@@ -1077,6 +1166,8 @@ if __name__ == '__main__':
             return self._config.get(key, default)
         def set(self, key, value):
             self._config[key] = value
+        def is_initial_setup_needed(self):
+            return False  # Skip setup for testing
 
     # Import the actual I18nManager from its new location
     from .i18n_manager import I18nManager as DummyI18nManager

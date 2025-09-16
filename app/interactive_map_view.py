@@ -17,6 +17,7 @@ import datetime
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog, QMenu, QAction, QDialog, QScrollArea, QPushButton, QApplication, QFormLayout, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent
+from typing import List
 from .data_models import PlacedAP, ScanPoint
 # from .scan_simulator import ScanSimulator  # Removed for V1, will be used in V2 for predictive heatmaps
 from .wifi_scanner import WiFiScanner, WiFiScanError
@@ -56,6 +57,10 @@ class InteractiveMapView(QWidget):
         self.heatmap_enabled = False
         self.current_heatmap_network = None  # None means strongest signal
         self.heatmap_pixmap = None
+
+        # Interference heatmap support
+        self.interference_heatmap_enabled = False
+        self.interference_heatmap_pixmap = None
 
         # UI state
         self.placement_mode = "ap"  # "ap" or "scan_point"
@@ -149,6 +154,10 @@ class InteractiveMapView(QWidget):
             # Draw heatmap overlay if enabled
             if self.heatmap_enabled:
                 self._draw_heatmap_overlay(painter)
+
+            # Draw interference heatmap overlay if enabled
+            if self.interference_heatmap_enabled:
+                self._draw_interference_heatmap_overlay(painter)
 
             # Draw placed APs
             self._draw_placed_aps(painter)
@@ -322,6 +331,94 @@ class InteractiveMapView(QWidget):
         if self.debug_mode:
             network_name = network_ssid if network_ssid else "Strongest Signal"
             print(f"DEBUG: Heatmap network set to: {network_name}, enabled: {enabled}")
+
+    def set_interference_heatmap_enabled(self, enabled: bool):
+        """Enable or disable interference heatmap display"""
+        if self.interference_heatmap_enabled != enabled:
+            self.interference_heatmap_enabled = enabled
+            if self.interference_heatmap_enabled:
+                self._update_interference_heatmap()
+            self._render_map()
+
+        if self.debug_mode:
+            print(f"DEBUG: Interference heatmap {'enabled' if enabled else 'disabled'}")
+
+    def _draw_interference_heatmap_overlay(self, painter):
+        """Draw interference heatmap overlay on the map"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            return
+
+        # Only generate interference heatmap if we don't have one yet
+        if not self.interference_heatmap_pixmap or self.interference_heatmap_pixmap.isNull():
+            self._update_interference_heatmap()
+
+        if self.interference_heatmap_pixmap and not self.interference_heatmap_pixmap.isNull():
+            # Draw the interference heatmap overlay
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            painter.drawPixmap(0, 0, self.interference_heatmap_pixmap)
+
+    def _update_interference_heatmap(self):
+        """Update the interference heatmap based on current scan data"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            self.interference_heatmap_pixmap = None
+            return
+
+        # Set heatmap dimensions to match floor plan
+        if self.base_pixmap and not self.base_pixmap.isNull():
+            width = self.base_pixmap.width()
+            height = self.base_pixmap.height()
+            self.heatmap_generator.width = width
+            self.heatmap_generator.height = height
+
+        # Generate interference heatmap with progress indication
+        self._update_status("Generating interference heatmap...")
+
+        # Auto-detect target network prefixes from scan data
+        target_prefixes = self._auto_detect_target_network_prefixes()
+
+        # Generate interference heatmap
+        self.interference_heatmap_pixmap = self.heatmap_generator.generate_interference_heatmap(
+            self.current_floor.scan_points,
+            target_prefixes=target_prefixes,
+            floor=self.current_floor,
+            status_callback=self._interference_heatmap_progress_callback
+        )
+
+        completion_message = "Interference heatmap generation completed"
+        self._update_status(completion_message)
+
+        if self.debug_mode:
+            print(f"DEBUG: Interference heatmap updated for {len(self.current_floor.scan_points)} scan points")
+
+    def _auto_detect_target_network_prefixes(self) -> List[str]:
+        """Auto-detect target network prefixes from scan data"""
+        if not self.current_floor or not self.current_floor.scan_points:
+            return []
+
+        # Import here to avoid circular imports
+        from .interference_analyzer import InterferenceAnalyzer
+
+        # Collect all networks
+        all_networks = []
+        for scan_point in self.current_floor.scan_points:
+            all_networks.extend(scan_point.ap_list)
+
+        # Use analyzer to auto-detect target network
+        analyzer = InterferenceAnalyzer()
+        target_prefixes = analyzer._auto_detect_target_network(all_networks)
+
+        if self.debug_mode:
+            print(f"DEBUG: Auto-detected target network prefixes: {target_prefixes}")
+
+        return target_prefixes
+
+    def _interference_heatmap_progress_callback(self, percent, network_name):
+        """Callback for interference heatmap generation progress updates"""
+        if percent == 100:
+            return
+
+        progress_message = f"Generating interference heatmap... {percent}%"
+        self._update_status(progress_message)
 
     def set_left_click_mode(self, mode: str = None):
         """Set the left-click mode for menu-triggered placement"""
